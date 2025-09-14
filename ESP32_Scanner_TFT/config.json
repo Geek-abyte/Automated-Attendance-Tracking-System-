@@ -1,0 +1,10 @@
+{
+  "wifi_ssid": "YourWiFi",
+  "wifi_password": "YourPassword",
+  "backend_url": "https://your-convex-deployment.convex.cloud/http",
+  "api_key": "att_3sh4fmd2u14ffisevqztm",
+  "scanner_id": "ESP32-Scanner-01",
+  "scan_interval_seconds": 5,
+  "max_devices": 3,
+  "max_events": 3
+}

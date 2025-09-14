@@ -1,0 +1,10 @@
+# BLE scanning and HTTP client
+bleak==0.22.3
+requests==2.32.3
+# Web interface
+flask==3.0.0
+# CLI
+click==8.1.7
+# Utilities
+python-dateutil==2.9.0.post0
+

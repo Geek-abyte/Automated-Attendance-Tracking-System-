@@ -1,0 +1,9 @@
+{
+  "backend_base_url": "https://compassionate-yak-763.convex.cloud/http",
+  "api_key": "att_3sh4fmd2u14ffisevqztm",
+  "scanner_id": "Python-Scanner-01",
+  "event_id": "",
+  "log_path": "./attendance_log.jsonl",
+  "uuid_prefix": "ATT-",
+  "scan_interval_seconds": 5
+}

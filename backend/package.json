@@ -1,0 +1,28 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Automated Attendance Tracking System - Backend",
+  "main": "index.js",
+  "scripts": {
+    "dev": "convex dev",
+    "predev": "convex dev --once",
+    "build": "convex deploy",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:mvp-backend": "echo \"Running MVP backend tests...\" && npm run predev"
+  },
+  "keywords": [
+    "attendance",
+    "bluetooth",
+    "tracking",
+    "convex"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "convex": "^1.25.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}
