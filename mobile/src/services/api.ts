@@ -12,7 +12,13 @@ export class ApiService {
 
   static initialize() {
     if (!this.client) {
-      this.client = new ConvexHttpClient(process.env.EXPO_PUBLIC_CONVEX_URL!);
+      const url = process.env.EXPO_PUBLIC_CONVEX_URL;
+      if (!url) {
+        throw new Error(
+          "EXPO_PUBLIC_CONVEX_URL is not set. Please define it in mobile/.env or your build environment."
+        );
+      }
+      this.client = new ConvexHttpClient(url);
     }
   }
 

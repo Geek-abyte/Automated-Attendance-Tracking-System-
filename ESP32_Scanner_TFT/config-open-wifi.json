@@ -1,10 +1,10 @@
 {
-  "wifi_ssid": "Lexis Net",
-  "wifi_password": "testnet1234",
+  "wifi_ssid": "GoldBars Internet-EXT",
+  "wifi_password": "",
   "backend_url": "https://compassionate-yak-763.convex.cloud/http",
   "api_key": "att_3sh4fmd2u14ffisevqztm",
   "scanner_id": "ESP32-Scanner-01",
-  "event_id": "",
+  "event_id": "your-event-name-or-id",
   "uuid_prefix": "ATT-",
   "scan_interval": 10
 }

@@ -1,0 +1,64 @@
+# Required Arduino Libraries for ESP32 Scanner with TFT Display
+
+## Core Libraries (included with ESP32 board package)
+- WiFi
+- BluetoothSerial
+- SPIFFS
+- WebServer
+- ArduinoOTA
+
+## Required External Libraries (install via Library Manager)
+
+### 1. ArduinoJson
+- **Library**: ArduinoJson by Benoit Blanchon
+- **Version**: 6.21.3 or later
+- **Purpose**: JSON parsing and generation for API communication
+- **Install**: Tools → Manage Libraries → Search "ArduinoJson"
+
+### 2. Adafruit ST7735
+- **Library**: Adafruit ST7735 and ST7789 Library
+- **Version**: 1.10.0 or later
+- **Purpose**: TFT display driver for ST7735 128x128 RGB display
+- **Install**: Tools → Manage Libraries → Search "Adafruit ST7735"
+
+### 3. Adafruit GFX Library
+- **Library**: Adafruit GFX Library
+- **Version**: 1.11.5 or later
+- **Purpose**: Graphics library for TFT displays (dependency of ST7735)
+- **Install**: Tools → Manage Libraries → Search "Adafruit GFX"
+
+### 4. ESPAsyncWebServer (Optional - for web interface)
+- **Library**: ESPAsyncWebServer by me-no-dev
+- **Version**: 1.2.3 or later
+- **Purpose**: Asynchronous web server for configuration interface
+- **Install**: Tools → Manage Libraries → Search "ESPAsyncWebServer"
+
+### 5. AsyncTCP (Optional - dependency of ESPAsyncWebServer)
+- **Library**: AsyncTCP by me-no-dev
+- **Version**: 1.1.1 or later
+- **Purpose**: Asynchronous TCP library
+- **Install**: Tools → Manage Libraries → Search "AsyncTCP"
+
+## Installation Instructions
+
+1. Open Arduino IDE
+2. Go to Tools → Manage Libraries
+3. Search for each library name above
+4. Click "Install" for each library
+5. Restart Arduino IDE after installing all libraries
+
+## Alternative Installation (GitHub)
+
+If libraries are not available in Library Manager, install manually:
+
+1. Download ZIP files from GitHub repositories
+2. Go to Sketch → Include Library → Add .ZIP Library
+3. Select the downloaded ZIP files
+
+## Library URLs (for manual installation)
+
+- ArduinoJson: https://github.com/bblanchon/ArduinoJson
+- Adafruit ST7735: https://github.com/adafruit/Adafruit-ST7735-Library
+- Adafruit GFX: https://github.com/adafruit/Adafruit-GFX-Library
+- ESPAsyncWebServer: https://github.com/me-no-dev/ESPAsyncWebServer
+- AsyncTCP: https://github.com/me-no-dev/AsyncTCP

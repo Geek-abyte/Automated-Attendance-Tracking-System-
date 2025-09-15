@@ -1,355 +1,480 @@
 /*
- * ESP32 Attendance Scanner - With TFT Display
- * Based on working older version but optimized for memory
+ * ESP32 Attendance Scanner with TFT Display
+ * Clean, focused implementation for event-based attendance tracking
+ * 
+ * Hardware:
+ * - TFT Display (ST7735 128x128 RGB)
+ * - 3 Push Buttons (UP, DOWN, ENTER) with internal pullup
+ * - 2 LEDs (Yellow: Device On, Blue: Scanning)
+ * 
+ * Process:
+ * 1. Boot up and fetch events from backend
+ * 2. Display event list for selection
+ * 3. User selects event and chooses to begin scan
+ * 4. Scanner actively scans for registered devices
+ * 5. Records attendance and updates database
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7735.h>
-#include <SPI.h>
+#include <BluetoothSerial.h>
+#include <SPIFFS.h>
+#include <ArduinoJson.h>
+#include <WebServer.h>
+#include <ArduinoOTA.h>
 
-// TFT Display Configuration (ST7735 128x128 RGB)
-#define TFT_CS    5   // Chip Select
-#define TFT_RST   22  // Reset
-#define TFT_DC    21  // Data/Command
-#define TFT_MOSI  23  // MOSI (SDA)
-#define TFT_SCLK  18  // Clock (SCK)
+// Hardware includes
+#include "hardware_config.h"
+#include "display_manager.h"
+#include "button_manager.h"
+#include "led_manager.h"
+#include "backend_client.h"
+#include "ble_scanner.h"
+#include "event_manager.h"
 
-// Button Pins (with internal pullup, default state HIGH)
-#define BUTTON_UP    35  // Up navigation
-#define BUTTON_ENTER 32  // Enter/Select
-#define BUTTON_DOWN  33  // Down navigation
-
-// LED Pins
-#define LED_YELLOW 34  // Device on/standby indicator
-#define LED_BLUE   39  // Active scanning indicator
-
-// Display Colors (16-bit RGB565)
-#define COLOR_BLACK    0x0000
-#define COLOR_WHITE    0xFFFF
-#define COLOR_RED      0xF800
-#define COLOR_GREEN    0x07E0
-#define COLOR_BLUE     0x001F
-#define COLOR_YELLOW   0xFFE0
-#define COLOR_CYAN     0x07FF
-
-// Display Layout
-#define SCREEN_WIDTH   128
-#define SCREEN_HEIGHT  128
-#define FONT_SIZE      1
-#define LINE_HEIGHT    12
-#define MAX_MENU_ITEMS 6
-
-// Button States (with internal pullup)
-#define BUTTON_PRESSED     LOW
-#define BUTTON_RELEASED    HIGH
-
-// LED States
-#define LED_ON     HIGH
-#define LED_OFF    LOW
-
-// Display Text Positions
-#define TITLE_Y        8
-#define MENU_START_Y   25
-#define STATUS_Y       120
-#define LEFT_MARGIN    5
-
-// Global variables
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
-bool isScanning = false;
-int selectedEvent = 0;
-int deviceCount = 0;
-
-// Button states
-bool btnUp = false, btnEnter = false, btnDown = false;
-bool lastBtnUp = false, lastBtnEnter = false, lastBtnDown = false;
-unsigned long lastDebounce = 0;
-
-// Events - minimal
-char events[3][12] = {"Meeting", "Workshop", "Training"};
-int eventCount = 3;
-
-// Scanned devices - minimal
-char devices[3][16];
-int rssi[3];
+// Global objects
+DisplayManager display;
+ButtonManager buttons;
+LEDManager leds;
+BackendClient backend;
+BLEScanner bleScanner;
+EventManager events;
 
 // System state
-enum State { READY, SCANNING };
-State currentState = READY;
+enum SystemState {
+  STATE_INIT,
+  STATE_LOADING_EVENTS,
+  STATE_EVENT_SELECTION,
+  STATE_EVENT_ACTIVE,
+  STATE_SCANNING,
+  STATE_ERROR
+};
 
-// Display update control
-unsigned long lastDisplayUpdate = 0;
-bool needsRefresh = true;
-bool displayInitialized = false;
+SystemState currentState = STATE_INIT;
+unsigned long lastUpdate = 0;
+unsigned long lastScan = 0;
+String errorMessage = "";
+int eventLoadRetries = 0;
+const int MAX_EVENT_RETRIES = 5;
+
+// Event data
+String selectedEventId = "";
+String selectedEventName = "";
+bool isScanning = false;
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  Serial.println("\n=== ESP32 Attendance Scanner ===");
+  Serial.println("Version: 2.0.0");
   
-  Serial.println("ESP32 Scanner with TFT");
-  
-  // Initialize TFT display
-  tft.initR(INITR_BLACKTAB);
-  tft.setRotation(1); // Landscape orientation
-  tft.fillScreen(COLOR_BLACK);
-  tft.setTextColor(COLOR_WHITE, COLOR_BLACK);
-  tft.setTextSize(FONT_SIZE);
-  
-  // Initialize pins
-  pinMode(BUTTON_UP, INPUT_PULLUP);
-  pinMode(BUTTON_ENTER, INPUT_PULLUP);
-  pinMode(BUTTON_DOWN, INPUT_PULLUP);
-  pinMode(LED_YELLOW, OUTPUT);
-  pinMode(LED_BLUE, OUTPUT);
-  
-  // Initialize WiFi
-  WiFi.begin("YourWiFi", "YourPassword");
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 10) {
-    delay(500);
-    attempts++;
+  // Initialize hardware
+  if (!initializeHardware()) {
+    setError("Hardware initialization failed");
+    return;
   }
   
-  // Turn on system LED
-  digitalWrite(LED_YELLOW, LED_ON);
+  // Initialize storage
+  if (!SPIFFS.begin(true)) {
+    setError("Storage initialization failed");
+    return;
+  }
   
-  showMenu();
+  // Initialize WiFi
+  if (!initializeWiFi()) {
+    setError("WiFi initialization failed");
+    return;
+  }
+  
+  // Initialize backend client
+  backend.begin();
+  {
+    String url = loadConfig("backend_url");
+    String key = loadConfig("api_key");
+    if (url.length() > 0) {
+      backend.setBaseURL(url);
+    }
+    if (key.length() > 0) {
+      backend.setAPIKey(key);
+    }
+  }
+  
+  // Initialize BLE scanner
+  if (!bleScanner.begin()) {
+    setError("BLE scanner initialization failed");
+    return;
+  }
+  
+  // Initialize event manager
+  events.begin();
+  
+  // Setup OTA
+  setupOTA();
+  
+  // Start loading events
+  currentState = STATE_LOADING_EVENTS;
+  display.showLoading("Loading events...");
+  
+  Serial.println("System initialized successfully");
 }
 
 void loop() {
-  // Update buttons
-  unsigned long now = millis();
-  if (now - lastDebounce >= 50) {
-    lastBtnUp = btnUp;
-    lastBtnEnter = btnEnter;
-    lastBtnDown = btnDown;
-    
-    btnUp = (digitalRead(BUTTON_UP) == BUTTON_PRESSED);
-    btnEnter = (digitalRead(BUTTON_ENTER) == BUTTON_PRESSED);
-    btnDown = (digitalRead(BUTTON_DOWN) == BUTTON_PRESSED);
-    
-    // Debug button states (uncomment if needed)
-    // if (btnUp || btnEnter || btnDown) {
-    //   Serial.print("Buttons - UP:");
-    //   Serial.print(btnUp);
-    //   Serial.print(" ENTER:");
-    //   Serial.print(btnEnter);
-    //   Serial.print(" DOWN:");
-    //   Serial.println(btnDown);
-    // }
-    
-    lastDebounce = now;
-  }
+  // Handle OTA updates
+  ArduinoOTA.handle();
   
-  // Handle button presses - immediate response
-  if (btnUp && !lastBtnUp) {
-    if (currentState == READY) {
-      selectedEvent = (selectedEvent - 1 + eventCount) % eventCount; // Go up (decrease index)
-      needsRefresh = true; // Trigger immediate refresh
-      Serial.print("UP pressed - selected: ");
-      Serial.println(selectedEvent);
-    }
-  }
+  // Update hardware
+  updateHardware();
   
-  if (btnEnter && !lastBtnEnter) {
-    if (currentState == READY) {
-      startScanning();
-    } else if (currentState == SCANNING) {
-      stopScanning();
-    }
-    Serial.println("ENTER pressed");
-  }
+  // Update system state
+  updateSystemState();
   
-  if (btnDown && !lastBtnDown) {
-    if (currentState == READY) {
-      selectedEvent = (selectedEvent + 1) % eventCount; // Go down (increase index)
-      needsRefresh = true; // Trigger immediate refresh
-      Serial.print("DOWN pressed - selected: ");
-      Serial.println(selectedEvent);
-    }
-  }
-  
-  // Update LEDs
-  digitalWrite(LED_YELLOW, LED_ON);
-  digitalWrite(LED_BLUE, isScanning ? LED_ON : LED_OFF);
-  
-  // Handle scanning (mock)
-  if (currentState == SCANNING) {
-    static unsigned long lastScan = 0;
-    if (millis() - lastScan >= 5000) {
-      performScan();
-      lastScan = millis();
-    }
-  }
-  
-  // Update display only when needed
-  if (needsRefresh) {
-    updateDisplay();
-    needsRefresh = false;
-  }
-  
+  // Small delay to prevent watchdog reset
   delay(10);
 }
 
-void startScanning() {
-  currentState = SCANNING;
-  isScanning = true;
-  deviceCount = 0;
-  needsRefresh = true;
+bool initializeHardware() {
+  // Initialize display
+  if (!display.begin()) {
+    Serial.println("Failed to initialize display");
+    return false;
+  }
   
-  Serial.println("\n=== SCANNING ===");
-  Serial.print("Event: ");
-  Serial.println(events[selectedEvent]);
-  Serial.println("Scanning...");
-  Serial.println("ENTER: Stop");
+  // Initialize buttons
+  if (!buttons.begin()) {
+    Serial.println("Failed to initialize buttons");
+    return false;
+  }
+  
+  // Initialize LEDs
+  if (!leds.begin()) {
+    Serial.println("Failed to initialize LEDs");
+    return false;
+  }
+  
+  // Show startup screen
+  display.showStartup();
+  
+  return true;
+}
+
+bool initializeWiFi() {
+  // Load WiFi credentials from storage
+  String ssid = loadConfig("wifi_ssid");
+  String password = loadConfig("wifi_password");
+  
+  if (ssid.length() == 0) {
+    // No WiFi configured, start AP mode
+    return startAPMode();
+  }
+  
+  // Connect to WiFi
+  WiFi.begin(ssid.c_str(), password.c_str());
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    attempts++;
+    Serial.print(".");
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
+    return true;
+  } else {
+    Serial.println("\nWiFi connection failed, starting AP mode");
+    return startAPMode();
+  }
+}
+
+bool startAPMode() {
+  WiFi.softAP("ESP32-Scanner", "attendance123");
+  Serial.println("AP mode started: ESP32-Scanner");
+  return true;
+}
+
+void updateHardware() {
+  // Update button states
+  buttons.update();
+  
+  // Handle button presses
+  if (buttons.isUpClicked()) {
+    display.navigateUp();
+  }
+  
+  if (buttons.isDownClicked()) {
+    display.navigateDown();
+  }
+  
+  if (buttons.isEnterClicked()) {
+    handleEnterPress();
+  }
+  
+  // Update display
+  display.update();
+  
+  // Update LEDs
+  leds.update();
+}
+
+void updateSystemState() {
+  unsigned long now = millis();
+  
+  // Check WiFi connection status
+  if (currentState != STATE_INIT && WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected, attempting reconnection...");
+    if (initializeWiFi()) {
+      Serial.println("WiFi reconnected successfully");
+    } else {
+      Serial.println("WiFi reconnection failed");
+    }
+  }
+  
+  switch (currentState) {
+    case STATE_LOADING_EVENTS:
+      if (now - lastUpdate >= 2000) { // Check every 2 seconds
+        Serial.println("Attempting to load events from backend... (Attempt " + String(eventLoadRetries + 1) + "/" + String(MAX_EVENT_RETRIES) + ")");
+        Serial.println("WiFi Status: " + String(WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected"));
+        Serial.println("Backend Connected: " + String(backend.isConnected() ? "Yes" : "No"));
+        
+        if (loadEventsFromBackend()) {
+          Serial.println("Events loaded successfully: " + String(events.getEventCount()) + " events");
+          currentState = STATE_EVENT_SELECTION;
+          display.showEventList(events.getEventList(), events.getEventCount());
+          eventLoadRetries = 0; // Reset retry counter on success
+        } else {
+          eventLoadRetries++;
+          Serial.println("Failed to load events: " + backend.getLastError());
+          
+          if (eventLoadRetries >= MAX_EVENT_RETRIES) {
+            Serial.println("Max retries reached, showing test events");
+            setError("Backend unavailable. Using test events.");
+            // Force load test events
+            events.addTestEvents();
+            currentState = STATE_EVENT_SELECTION;
+            display.showEventList(events.getEventList(), events.getEventCount());
+          } else {
+            display.showLoading("Failed to load events. Retrying... (" + String(eventLoadRetries) + "/" + String(MAX_EVENT_RETRIES) + ")");
+          }
+        }
+        lastUpdate = now;
+      }
+      break;
+      
+    case STATE_EVENT_SELECTION:
+      // Waiting for user input
+      break;
+      
+    case STATE_EVENT_ACTIVE:
+      // Event selected, waiting for scan start
+      break;
+      
+    case STATE_SCANNING:
+      if (now - lastScan >= 5000) { // Scan every 5 seconds
+        performScan();
+        lastScan = now;
+      }
+      break;
+      
+    case STATE_ERROR:
+      // Error state, waiting for reset
+      break;
+  }
+  
+  // Update LED states
+  updateLEDStates();
+}
+
+void handleEnterPress() {
+  switch (currentState) {
+    case STATE_EVENT_SELECTION:
+      if (events.selectEvent(display.getSelectedIndex())) {
+        selectedEventId = events.getSelectedEventId();
+        selectedEventName = events.getSelectedEventName();
+        currentState = STATE_EVENT_ACTIVE;
+        display.showEventSelected(selectedEventName);
+      }
+      break;
+      
+    case STATE_EVENT_ACTIVE:
+      startScanning();
+      break;
+      
+    case STATE_SCANNING:
+      stopScanning();
+      break;
+      
+    case STATE_ERROR:
+      // Reset system
+      currentState = STATE_LOADING_EVENTS;
+      display.showLoading("Restarting...");
+      break;
+  }
+}
+
+void startScanning() {
+  if (selectedEventId.length() == 0) {
+    setError("No event selected");
+    return;
+  }
+  
+  isScanning = true;
+  currentState = STATE_SCANNING;
+  display.showScanning(selectedEventName);
+  Serial.println("Started scanning for event: " + selectedEventName);
 }
 
 void stopScanning() {
-  currentState = READY;
   isScanning = false;
-  showResults();
-  showMenu();
+  currentState = STATE_EVENT_ACTIVE;
+  display.showEventSelected(selectedEventName);
+  Serial.println("Stopped scanning");
 }
 
 void performScan() {
-  // Mock scan - add fake devices
-  deviceCount = 2;
-  strcpy(devices[0], "12345678-1234");
-  rssi[0] = -45;
-  strcpy(devices[1], "87654321-4321");
-  rssi[1] = -52;
+  if (!isScanning) return;
   
-  needsRefresh = true;
-  showResults();
-}
-
-void showMenu() {
-  needsRefresh = true;
+  Serial.println("Performing BLE scan...");
   
-  Serial.println("\n=== EVENTS ===");
-  for (int i = 0; i < eventCount; i++) {
-    Serial.print(i == selectedEvent ? "> " : "  ");
-    Serial.print(i + 1);
-    Serial.print(". ");
-    Serial.println(events[i]);
-  }
-  Serial.println("UP/DOWN: Select | ENTER: Start");
-}
-
-void showResults() {
-  needsRefresh = true;
+  // Get BLE devices
+  std::vector<ScannedDevice> devices = bleScanner.scan();
   
-  Serial.println("\n=== RESULTS ===");
-  Serial.print("Found: ");
-  Serial.println(deviceCount);
-  
-  for (int i = 0; i < deviceCount; i++) {
-    Serial.print(i + 1);
-    Serial.print(". ");
-    Serial.print(devices[i]);
-    Serial.print(" (");
-    Serial.print(rssi[i]);
-    Serial.println(" dBm)");
-  }
-}
-
-// TFT Display functions - Optimized for speed
-void updateDisplay() {
-  // Only update if enough time has passed and refresh is needed
-  if (millis() - lastDisplayUpdate < 50) return;
-  
-  switch (currentState) {
-    case READY:
-      drawEventMenu();
-      break;
-    case SCANNING:
-      drawScanning();
-      break;
-  }
-  
-  lastDisplayUpdate = millis();
-}
-
-void drawEventMenu() {
-  // Only clear and redraw if not initialized
-  if (!displayInitialized) {
-    tft.fillScreen(COLOR_BLACK);
-    tft.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    tft.setTextSize(FONT_SIZE);
+  if (devices.size() > 0) {
+    Serial.println("Found " + String(devices.size()) + " devices");
     
-    // Title (only draw once)
-    tft.setCursor(LEFT_MARGIN, TITLE_Y);
-    tft.println("EVENTS");
-    tft.drawLine(LEFT_MARGIN, TITLE_Y + 10, SCREEN_WIDTH - LEFT_MARGIN, TITLE_Y + 10, COLOR_WHITE);
-    
-    // Instructions (only draw once)
-    tft.setTextColor(COLOR_CYAN, COLOR_BLACK);
-    tft.setCursor(LEFT_MARGIN, STATUS_Y - 20);
-    tft.println("UP/DOWN: Select");
-    tft.setCursor(LEFT_MARGIN, STATUS_Y - 10);
-    tft.println("ENTER: Start");
-    
-    displayInitialized = true;
-  }
-  
-  // Only redraw the event list (faster)
-  for (int i = 0; i < eventCount; i++) {
-    int y = MENU_START_Y + i * LINE_HEIGHT;
-    
-    // Clear the line first
-    tft.fillRect(LEFT_MARGIN, y, SCREEN_WIDTH - LEFT_MARGIN, LINE_HEIGHT, COLOR_BLACK);
-    
-    tft.setCursor(LEFT_MARGIN, y);
-    
-    if (i == selectedEvent) {
-      tft.setTextColor(COLOR_YELLOW, COLOR_BLACK);
-      tft.print("> ");
-    } else {
-      tft.setTextColor(COLOR_WHITE, COLOR_BLACK);
-      tft.print("  ");
+    // Process each device
+    for (const auto& device : devices) {
+      if (isDeviceRegistered(device)) {
+        recordAttendance(device);
+      }
     }
-    tft.print(i + 1);
-    tft.print(". ");
-    tft.println(events[i]);
+  }
+  
+  // Update display with scan results
+  display.updateScanResults(devices.size());
+}
+
+bool isDeviceRegistered(const ScannedDevice& device) {
+  // Check if device is registered for the selected event
+  return events.isDeviceRegistered(selectedEventId, device.uuid);
+}
+
+void recordAttendance(const ScannedDevice& device) {
+  // Create attendance record
+  JsonDocument record;
+  record["eventId"] = selectedEventId;
+  record["bleUuid"] = device.uuid;
+  record["deviceName"] = device.name;
+  record["rssi"] = device.rssi;
+  record["timestamp"] = millis();
+  record["scannerId"] = "ESP32-Scanner-01";
+  
+  // Send to backend
+  if (backend.recordAttendance(record)) {
+    Serial.println("Recorded attendance for: " + device.uuid);
+    display.showAttendanceRecorded(device.name);
+  } else {
+    Serial.println("Failed to record attendance for: " + device.uuid);
   }
 }
 
-void drawScanning() {
-  // Always clear screen for scanning (different content)
-  tft.fillScreen(COLOR_BLACK);
-  tft.setTextColor(COLOR_WHITE, COLOR_BLACK);
-  tft.setTextSize(FONT_SIZE);
+bool loadEventsFromBackend() {
+  return events.loadFromBackend(backend);
+}
+
+void setError(const String& message) {
+  errorMessage = message;
+  currentState = STATE_ERROR;
+  display.showError(message);
+  Serial.println("Error: " + message);
+}
+
+void updateLEDStates() {
+  switch (currentState) {
+    case STATE_INIT:
+    case STATE_LOADING_EVENTS:
+      leds.setSystemState(false, false);
+      break;
+      
+    case STATE_EVENT_SELECTION:
+    case STATE_EVENT_ACTIVE:
+      leds.setSystemState(true, false);
+      break;
+      
+    case STATE_SCANNING:
+      leds.setSystemState(true, true);
+      break;
+      
+    case STATE_ERROR:
+      leds.setSystemState(false, false);
+      break;
+  }
+}
+
+void setupOTA() {
+  ArduinoOTA.setHostname("esp32-scanner");
+  ArduinoOTA.setPassword("attendance123");
   
-  // Title
-  tft.setCursor(LEFT_MARGIN, TITLE_Y);
-  tft.println("SCANNING");
-  tft.drawLine(LEFT_MARGIN, TITLE_Y + 10, SCREEN_WIDTH - LEFT_MARGIN, TITLE_Y + 10, COLOR_WHITE);
+  ArduinoOTA.onStart([]() {
+    Serial.println("OTA Start updating");
+  });
   
-  // Event name
-  tft.setCursor(LEFT_MARGIN, TITLE_Y + 20);
-  tft.print("Event: ");
-  tft.println(events[selectedEvent]);
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nOTA End");
+  });
   
-  // Device count
-  tft.setCursor(LEFT_MARGIN, TITLE_Y + 40);
-  tft.print("Found: ");
-  tft.println(deviceCount);
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
+  });
   
-  // Show found devices
-  for (int i = 0; i < deviceCount && i < 3; i++) {
-    int y = TITLE_Y + 60 + i * LINE_HEIGHT;
-    tft.setCursor(LEFT_MARGIN, y);
-    tft.print(i + 1);
-    tft.print(". ");
-    tft.print(devices[i]);
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("OTA Error[%u]: ", error);
+  });
+  
+  ArduinoOTA.begin();
+}
+
+String loadConfig(const String& key) {
+  if (!SPIFFS.exists("/config.json")) {
+    return "";
   }
   
-  // Instructions
-  tft.setTextColor(COLOR_CYAN, COLOR_BLACK);
-  tft.setCursor(LEFT_MARGIN, STATUS_Y - 10);
-  tft.println("ENTER: Stop");
+  File file = SPIFFS.open("/config.json", "r");
+  if (!file) {
+    return "";
+  }
   
-  // Reset display flag for next time
-  displayInitialized = false;
+  String content = file.readString();
+  file.close();
+  
+  JsonDocument doc;
+  deserializeJson(doc, content);
+  
+  if (doc.containsKey(key)) {
+    return doc[key].as<String>();
+  }
+  
+  return "";
+}
+
+void saveConfig(const String& key, const String& value) {
+  JsonDocument doc;
+  
+  // Load existing config
+  if (SPIFFS.exists("/config.json")) {
+    File file = SPIFFS.open("/config.json", "r");
+    if (file) {
+      String content = file.readString();
+      file.close();
+      deserializeJson(doc, content);
+    }
+  }
+  
+  // Update value
+  doc[key] = value;
+  
+  // Save config
+  File file = SPIFFS.open("/config.json", "w");
+  if (file) {
+    serializeJson(doc, file);
+    file.close();
+  }
 }
