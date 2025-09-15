@@ -794,6 +794,9 @@ void startScanning() {
     lastFoundRegisteredCount = -1;
     scanningDisplayNeedsUpdate = true;
     
+    // Force immediate display update
+    updateDisplay();
+    
     Serial.println("Scanning for registered devices...");
     Serial.println("ENTER: Stop");
     
@@ -881,12 +884,17 @@ void showResults() {
   needsRefresh = true;
   
   Serial.println("\n=== SCAN RESULTS ===");
-  Serial.print("Registered devices: ");
+  Serial.print("Registered users: ");
   Serial.println(registeredDeviceCount);
-  Serial.print("Found registered: ");
-  Serial.print(foundRegisteredCount);
-  Serial.print("/");
-  Serial.println(registeredDeviceCount);
+  Serial.print("Present users: ");
+  Serial.println(foundRegisteredCount);
+  Serial.print("Attendance rate: ");
+  if (registeredDeviceCount > 0) {
+    Serial.print((foundRegisteredCount * 100) / registeredDeviceCount);
+    Serial.println("%");
+  } else {
+    Serial.println("N/A");
+  }
 }
 
 // TFT Display functions - Optimized for speed and responsiveness
@@ -933,7 +941,7 @@ void updateDisplay() {
       break;
     case SCANNING:
       drawScanning();
-      // updateScanningDisplay() is called separately in main loop when needed
+      updateScanningDisplay(); // Always update scanning display when in SCANNING state
       drawWiFiStatus();
       break;
     case NO_WIFI:
@@ -1121,7 +1129,7 @@ void drawScanning() {
   // Event name
   tft.setCursor(LEFT_MARGIN, TITLE_Y + 20);
   tft.print("Event: ");
-  tft.println(events[selectedEvent]);
+  tft.println(truncateEventName(events[selectedEvent]));
   
   // Instructions
   tft.setTextColor(COLOR_CYAN, COLOR_BLACK);
@@ -1134,58 +1142,46 @@ void drawScanning() {
 
 // Optimized scanning update - only updates changed elements
 void updateScanningDisplay() {
-  // Always update if this is the first time or if counts changed
-  bool needsUpdate = false;
+  // Check if we need to update the device counts
+  bool countsChanged = (registeredDeviceCount != lastRegisteredDeviceCount || 
+                       foundRegisteredCount != lastFoundRegisteredCount ||
+                       lastRegisteredDeviceCount == -1);
   
-  // Check if device counts changed or if this is initial display
-  if (registeredDeviceCount != lastRegisteredDeviceCount || 
-      foundRegisteredCount != lastFoundRegisteredCount ||
-      lastRegisteredDeviceCount == -1) { // Initial display
-    needsUpdate = true;
-  }
-  
-  // Always update animation (but only the animation area)
-  static unsigned long lastAnimTime = 0;
-  static int animDots = 0;
-  if (millis() - lastAnimTime > 500) {
-    animDots = (animDots + 1) % 4;
-    lastAnimTime = millis();
-    needsUpdate = true;
-  }
-  
-  if (!needsUpdate) return;
-  
-  // Update only the device count area if counts changed or initial display
-  if (registeredDeviceCount != lastRegisteredDeviceCount || 
-      foundRegisteredCount != lastFoundRegisteredCount ||
-      lastRegisteredDeviceCount == -1) {
+  // Update device counts if they changed
+  if (countsChanged) {
     tft.fillRect(LEFT_MARGIN, TITLE_Y + 40, SCREEN_WIDTH - LEFT_MARGIN, 30, COLOR_BLACK);
     tft.setTextColor(COLOR_WHITE, COLOR_BLACK);
     
-    // Show registered devices count
+    // Show registered users count
     tft.setCursor(LEFT_MARGIN, TITLE_Y + 40);
-    tft.print("Registered: ");
+    tft.print("Registered Users: ");
     tft.println(registeredDeviceCount);
     
-    // Show found registered devices count
+    // Show present users count
     tft.setCursor(LEFT_MARGIN, TITLE_Y + 55);
-    tft.print("Found: ");
-    tft.print(foundRegisteredCount);
-    tft.print("/");
-    tft.println(registeredDeviceCount);
+    tft.print("Present Users: ");
+    tft.println(foundRegisteredCount);
     
     // Update tracking variables
     lastRegisteredDeviceCount = registeredDeviceCount;
     lastFoundRegisteredCount = foundRegisteredCount;
   }
   
-  // Update only the animation area
-  tft.fillRect(LEFT_MARGIN, TITLE_Y + 70, SCREEN_WIDTH - LEFT_MARGIN, 15, COLOR_BLACK);
-  tft.setTextColor(COLOR_CYAN, COLOR_BLACK);
-  tft.setCursor(LEFT_MARGIN, TITLE_Y + 70);
-  tft.print("Scanning");
-  for (int i = 0; i < animDots + 1; i++) {
-    tft.print(".");
+  // Always update animation
+  static unsigned long lastAnimTime = 0;
+  static int animDots = 0;
+  if (millis() - lastAnimTime > 500) {
+    animDots = (animDots + 1) % 4;
+    lastAnimTime = millis();
+    
+    // Update only the animation area
+    tft.fillRect(LEFT_MARGIN, TITLE_Y + 70, SCREEN_WIDTH - LEFT_MARGIN, 15, COLOR_BLACK);
+    tft.setTextColor(COLOR_CYAN, COLOR_BLACK);
+    tft.setCursor(LEFT_MARGIN, TITLE_Y + 70);
+    tft.print("Scanning");
+    for (int i = 0; i < animDots + 1; i++) {
+      tft.print(".");
+    }
   }
 }
 
