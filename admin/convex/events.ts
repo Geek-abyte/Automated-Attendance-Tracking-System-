@@ -88,29 +88,40 @@ export const updateEvent = mutation({
 export const deleteEvent = mutation({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    // First, delete all related attendance records
-    const attendanceRecords = await ctx.db
-      .query("attendance")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    
-    for (const record of attendanceRecords) {
-      await ctx.db.delete(record._id);
+    // Check if event exists
+    const event = await ctx.db.get(args.eventId);
+    if (!event) {
+      throw new Error("Event not found");
     }
 
-    // Delete all related registrations
-    const registrations = await ctx.db
-      .query("registrations")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    
-    for (const registration of registrations) {
-      await ctx.db.delete(registration._id);
-    }
+    try {
+      // First, delete all related attendance records
+      const attendanceRecords = await ctx.db
+        .query("attendance")
+        .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+        .collect();
+      
+      for (const record of attendanceRecords) {
+        await ctx.db.delete(record._id);
+      }
 
-    // Finally, delete the event itself
-    await ctx.db.delete(args.eventId);
-    return { success: true };
+      // Delete all related registrations
+      const registrations = await ctx.db
+        .query("registrations")
+        .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+        .collect();
+      
+      for (const registration of registrations) {
+        await ctx.db.delete(registration._id);
+      }
+
+      // Finally, delete the event itself
+      await ctx.db.delete(args.eventId);
+      return { success: true };
+    } catch (error) {
+      console.error("Error deleting event:", error);
+      throw new Error("Failed to delete event: " + (error as Error).message);
+    }
   },
 });
 
