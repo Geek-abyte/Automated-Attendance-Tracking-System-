@@ -1,5 +1,8 @@
 {
   "node": {
     "compatibility": "v18"
+  },
+  "http": {
+    "enabled": true
   }
 }

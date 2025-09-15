@@ -160,10 +160,54 @@ export const getEventAttendanceStats = query({
 export const getEventAttendanceSummaries = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    const summaries = await ctx.db
-      .query("attendanceSummary")
+    // Get all attendance records for the event
+    const attendance = await ctx.db
+      .query("attendance")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
       .collect();
+
+    // Group attendance by user and calculate summaries
+    const userAttendanceMap = new Map();
+    
+    attendance.forEach(record => {
+      const userId = record.userId;
+      if (!userAttendanceMap.has(userId)) {
+        userAttendanceMap.set(userId, {
+          userId,
+          presentScans: 0,
+          totalScans: 0,
+          firstSeen: null,
+          lastSeen: null,
+          attendancePercentage: 0
+        });
+      }
+      
+      const summary = userAttendanceMap.get(userId);
+      summary.totalScans++;
+      
+      // Check if this is a present record (handle both old and new data formats)
+      const isPresent = record.isPresent !== false; // Default to true if not specified
+      if (isPresent) {
+        summary.presentScans++;
+      }
+      
+      // Use scanTime if available, otherwise fall back to timestamp
+      const recordTime = record.scanTime || record.timestamp;
+      if (recordTime) {
+        if (!summary.firstSeen || recordTime < summary.firstSeen) {
+          summary.firstSeen = recordTime;
+        }
+        if (!summary.lastSeen || recordTime > summary.lastSeen) {
+          summary.lastSeen = recordTime;
+        }
+      }
+    });
+
+    // Calculate percentages and convert to array
+    const summaries = Array.from(userAttendanceMap.values()).map(summary => ({
+      ...summary,
+      attendancePercentage: summary.totalScans > 0 ? (summary.presentScans / summary.totalScans) * 100 : 0
+    }));
 
     // Include user details
     const summariesWithUsers = await Promise.all(

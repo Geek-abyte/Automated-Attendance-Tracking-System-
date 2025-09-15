@@ -31,15 +31,20 @@ export default defineSchema({
   attendance: defineTable({
     eventId: v.id("events"),
     userId: v.id("users"),
-    timestamp: v.number(),
-    method: v.string(), // "scanner", "manual", "mobile"
+    timestamp: v.optional(v.number()),
+    scanTime: v.optional(v.number()),
+    method: v.optional(v.string()), // "scanner", "manual", "mobile"
     deviceId: v.optional(v.string()),
     location: v.optional(v.string()),
+    isPresent: v.optional(v.boolean()),
+    scannerSource: v.optional(v.string()),
+    synced: v.optional(v.boolean()),
   })
     .index("by_event", ["eventId"])
     .index("by_user", ["userId"])
     .index("by_event_user", ["eventId", "userId"])
-    .index("by_timestamp", ["timestamp"]),
+    .index("by_timestamp", ["timestamp"])
+    .index("by_scanTime", ["scanTime"]),
 
   registrations: defineTable({
     eventId: v.id("events"),

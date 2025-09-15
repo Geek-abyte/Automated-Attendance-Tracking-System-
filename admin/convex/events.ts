@@ -84,8 +84,38 @@ export const updateEvent = mutation({
   },
 });
 
-// Delete event (soft delete by setting inactive)
+// Delete event (hard delete - removes from database)
 export const deleteEvent = mutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    // First, delete all related attendance records
+    const attendanceRecords = await ctx.db
+      .query("attendance")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    
+    for (const record of attendanceRecords) {
+      await ctx.db.delete(record._id);
+    }
+
+    // Delete all related registrations
+    const registrations = await ctx.db
+      .query("registrations")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    
+    for (const registration of registrations) {
+      await ctx.db.delete(registration._id);
+    }
+
+    // Finally, delete the event itself
+    await ctx.db.delete(args.eventId);
+    return { success: true };
+  },
+});
+
+// Soft delete event (set inactive)
+export const deactivateEvent = mutation({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.eventId, { isActive: false });

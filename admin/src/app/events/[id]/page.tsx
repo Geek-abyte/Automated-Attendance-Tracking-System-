@@ -35,8 +35,9 @@ export default function EventDetailsPage() {
   const event = useQuery(api.events.getEvent, { eventId }) as Event | undefined;
   const users = useQuery(api.users.listUsers, {}) as User[] | undefined;
   // Get attendance data with user details included
-  const attendance = useQuery(api.attendance.getEventAttendanceWithUsers, { 
-    eventId
+  const attendance = useQuery(api.attendance.getEventAttendance, { 
+    eventId,
+    includeUserDetails: true
   }) as any[] | undefined;
   
   // Get attendance summaries with percentages
