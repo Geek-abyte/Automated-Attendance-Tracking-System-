@@ -1,4 +1,5 @@
 #include "event_manager.h"
+#include <ArduinoJson.h>
 
 // Global instance defined in ESP32_Scanner_TFT.ino
 
@@ -7,10 +8,12 @@ EventManager::EventManager() {
   selectedEventIndex = -1;
   selectedEventId = "";
   selectedEventName = "";
+  devicesLoaded = false;
 }
 
 void EventManager::begin() {
   clearEvents();
+  clearRegisteredDevices();
   Serial.println("Event Manager initialized");
 }
 
@@ -27,11 +30,7 @@ bool EventManager::loadFromBackend(BackendClient& backend) {
   
   if (!backend.getEvents(tempEvents, count, MAX_EVENTS)) {
     Serial.println("Failed to load events from backend: " + backend.getLastError());
-    
-    // Add fallback test events if backend fails
-    Serial.println("Adding fallback test events...");
-    addTestEvents();
-    return true;
+    return false;
   }
   
   // Add events to manager
@@ -79,6 +78,9 @@ bool EventManager::selectEvent(int index) {
   selectedEventIndex = index;
   selectedEventId = events[index].id;
   selectedEventName = events[index].name;
+  
+  // Clear previously loaded devices when selecting a new event
+  clearRegisteredDevices();
   
   Serial.println("Selected event: " + selectedEventName + " (ID: " + selectedEventId + ")");
   return true;
@@ -131,9 +133,74 @@ Event* EventManager::getEventById(const String& eventId) {
   return nullptr;
 }
 
+bool EventManager::loadRegisteredDevices(BackendClient& backend) {
+  if (selectedEventId.length() == 0) {
+    Serial.println("No event selected, cannot load registered devices");
+    return false;
+  }
+  
+  Serial.println("Loading registered devices for event: " + selectedEventId);
+  
+  // Make request to backend
+  String endpoint = "registered-devices?eventId=" + selectedEventId;
+  String response;
+  
+  if (!backend.makeRequest(endpoint, "GET", "", response)) {
+    Serial.println("Failed to load registered devices: " + backend.getLastError());
+    return false;
+  }
+  
+  // Parse JSON response
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, response);
+  if (error) {
+    Serial.println("Failed to parse registered devices response: " + String(error.c_str()));
+    return false;
+  }
+  
+  if (!doc.containsKey("deviceUuids")) {
+    Serial.println("No deviceUuids in response");
+    return false;
+  }
+  
+  // Clear and load devices
+  registeredDevices.clear();
+  JsonArray uuids = doc["deviceUuids"];
+  
+  for (JsonVariant uuid : uuids) {
+    registeredDevices.push_back(uuid.as<String>());
+  }
+  
+  devicesLoaded = true;
+  Serial.println("Loaded " + String(registeredDevices.size()) + " registered devices for event");
+  
+  // Print registered devices for debugging
+  for (const auto& uuid : registeredDevices) {
+    Serial.println("  - " + uuid);
+  }
+  
+  return true;
+}
+
+int EventManager::getRegisteredDeviceCount() {
+  return registeredDevices.size();
+}
+
 bool EventManager::isDeviceRegistered(const String& eventId, const String& bleUuid) {
-  // Delegate to backend client for real registration check
-  return backend.isDeviceRegistered(eventId, bleUuid);
+  // If devices haven't been loaded yet, we can't verify
+  if (!devicesLoaded) {
+    Serial.println("Warning: Registered devices not loaded yet for event " + eventId);
+    return false;
+  }
+  
+  // Check if bleUuid is in the registered devices list
+  for (const auto& uuid : registeredDevices) {
+    if (uuid == bleUuid) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 bool EventManager::isEventActive(const String& eventId) {
@@ -154,6 +221,12 @@ void EventManager::clearEvents() {
   selectedEventIndex = -1;
   selectedEventId = "";
   selectedEventName = "";
+  clearRegisteredDevices();
+}
+
+void EventManager::clearRegisteredDevices() {
+  registeredDevices.clear();
+  devicesLoaded = false;
 }
 
 bool EventManager::addEvent(const Event& event) {

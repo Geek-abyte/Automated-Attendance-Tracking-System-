@@ -3,6 +3,8 @@
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
 #include "common_types.h"
 
@@ -22,6 +24,9 @@ private:
   unsigned long timeout;
   String lastError;
   
+  void setHeaders(HTTPClient& client);
+  String buildURL(const String& endpoint);
+  
 public:
   BackendClient();
   void begin();
@@ -34,6 +39,7 @@ public:
   // Event management
   bool getEvents(Event* events, int& count, int maxCount);
   bool getActiveEvents(Event* events, int& count, int maxCount);
+  bool activateEvent(const String& eventId);
   
   // Attendance recording
   bool recordAttendance(const AttendanceRecord& record);
@@ -49,10 +55,8 @@ public:
   // Error handling
   String getLastError();
   
-private:
+  // HTTP request (public for EventManager to use)
   bool makeRequest(const String& endpoint, const String& method, const String& body, String& response);
-  void setHeaders(HTTPClient& client);
-  String buildURL(const String& endpoint);
 };
 
 // Global backend client instance

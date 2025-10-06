@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
 import { AuthState, User } from '../types';
+import { ApiService } from '../services/api';
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<boolean>;
@@ -32,9 +32,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loading: true,
   });
 
-  const createUser = useMutation(api.users.createUser);
+  const createUser = useMutation("users:createUser" as any);
   const [loginEmail, setLoginEmail] = useState<string | null>(null);
-  const getUserByEmail = useQuery(api.users.getUserByEmail, 
+  const getUserByEmail = useQuery("users:getUserByEmail" as any, 
     loginEmail ? { email: loginEmail } : "skip"
   );
 
@@ -63,45 +63,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      setLoginEmail(email);
+      // Verify login credentials with backend
+      const user = await ApiService.verifyLogin(email.trim().toLowerCase(), password);
       
-      // Wait for the query to complete
-      return new Promise((resolve) => {
-        const checkUser = () => {
-          if (getUserByEmail !== undefined) {
-            if (getUserByEmail) {
-              // For now, we'll accept any password since we don't have password hashing
-              // In a production app, you'd verify the password hash here
-              const userData = {
-                _id: getUserByEmail._id,
-                name: getUserByEmail.name,
-                email: getUserByEmail.email,
-                bleUuid: getUserByEmail.bleUuid,
-                createdAt: getUserByEmail._creationTime,
-              };
-              
-              AsyncStorage.setItem('user', JSON.stringify(userData));
-              setAuthState({
-                isAuthenticated: true,
-                user: userData,
-                loading: false,
-              });
-              setLoginEmail(null);
-              resolve(true);
-            } else {
-              setLoginEmail(null);
-              resolve(false);
-            }
-          } else {
-            // Query is still loading, check again in 100ms
-            setTimeout(checkUser, 100);
-          }
-        };
-        checkUser();
+      if (!user) {
+        console.log('Invalid email or password');
+        return false;
+      }
+
+      // Store user data and mark as authenticated
+      const userData = {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        bleUuid: user.bleUuid,
+        createdAt: user._creationTime || user.createdAt,
+      };
+      
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      setAuthState({
+        isAuthenticated: true,
+        user: userData,
+        loading: false,
       });
+      return true;
     } catch (error) {
       console.error('Login error:', error);
-      setLoginEmail(null);
       return false;
     }
   };
@@ -114,6 +101,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const userId = await createUser({
         name: name.trim(),
         email: email.trim().toLowerCase(),
+        password: password,
         bleUuid,
       });
 
@@ -193,12 +181,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
 // Improved UUID generator for BLE with better uniqueness
 function generateBleUuid(): string {
-  // Use a more robust UUID generation approach
-  // For React Native, we'll use a combination of timestamp and random values
-  const timestamp = Date.now().toString(16);
-  const randomPart1 = Math.random().toString(16).substring(2, 10);
-  const randomPart2 = Math.random().toString(16).substring(2, 10);
-  const randomPart3 = Math.random().toString(16).substring(2, 10);
+  // Generate UUID with ATT-USER- prefix for scanner compatibility
+  // Scanner looks for devices with "ATT-" prefix
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let randomPart = '';
   
-  return `${timestamp}-${randomPart1}-4${randomPart2.substring(0, 3)}-${randomPart3.substring(0, 4)}-${randomPart2.substring(3)}${randomPart3.substring(4)}`;
+  // Generate 8 random alphanumeric characters
+  for (let i = 0; i < 8; i++) {
+    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  
+  return `ATT-USER-${randomPart}`;
 }

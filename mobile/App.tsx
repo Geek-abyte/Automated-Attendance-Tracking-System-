@@ -4,7 +4,7 @@ import { ConvexProvider } from 'convex/react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { convex } from './src/lib/convex';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
-import { BluetoothProvider } from './src/contexts/BluetoothContextFallback';
+import { BluetoothProvider } from './src/contexts/BluetoothContext';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RegisterScreen } from './src/screens/RegisterScreen';
 import { EventsScreen } from './src/screens/EventsScreen';

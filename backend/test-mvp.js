@@ -3,8 +3,9 @@
 
 const { ConvexHttpClient } = require("convex/browser");
 
-// Initialize client (using local development server)
-const client = new ConvexHttpClient("http://127.0.0.1:3210");
+// Initialize client using env var or fallback to local dev
+const convexUrl = process.env.CONVEX_URL || "http://127.0.0.1:3210";
+const client = new ConvexHttpClient(convexUrl);
 
 async function testMVPBackend() {
   console.log("🧪 Testing MVP Backend Functions...\n");

@@ -172,23 +172,46 @@ export const getEventStats = query({
 export const getRegisteredDevicesForEvent = internalQuery({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
+    console.log("getRegisteredDevicesForEvent called with eventId:", args.eventId);
+    
+    // Convert string ID to proper Convex ID type
+    const eventIdTyped = args.eventId as any;
+    
+    // Verify event exists first
+    try {
+      const event = await ctx.db.get(eventIdTyped);
+      if (!event) {
+        console.log("Event not found:", args.eventId);
+        return { deviceUuids: [], count: 0 };
+      }
+      console.log("Event found:", event.name);
+    } catch (error) {
+      console.log("Error getting event:", error);
+      return { deviceUuids: [], count: 0 };
+    }
+    
     // Get all registrations for the event
     const registrations = await ctx.db
       .query("eventRegistrations")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId as any))
+      .withIndex("by_event", (q) => q.eq("eventId", eventIdTyped))
       .filter((q) => q.eq(q.field("status"), "registered"))
       .collect();
+
+    console.log("Found registrations:", registrations.length);
 
     // Get user details and extract BLE UUIDs
     const deviceUuids: string[] = [];
     
     for (const registration of registrations) {
       const user = await ctx.db.get(registration.userId);
+      console.log("Processing registration for user:", user ? user.email : "not found");
       if (user && user.bleUuid) {
+        console.log("Adding BLE UUID:", user.bleUuid);
         deviceUuids.push(user.bleUuid);
       }
     }
 
+    console.log("Returning device UUIDs:", deviceUuids);
     return {
       deviceUuids,
       count: deviceUuids.length,

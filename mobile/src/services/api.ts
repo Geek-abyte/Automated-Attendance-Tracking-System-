@@ -1,5 +1,5 @@
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../convex/_generated/api";
+// Use string operation names to avoid importing backend generated API
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -23,10 +23,10 @@ export class ApiService {
   }
 
   // User management
-  static async createUser(userData: { name: string; email: string; bleUuid: string }): Promise<string> {
+  static async createUser(userData: { name: string; email: string; password: string; bleUuid: string }): Promise<string> {
     this.initialize();
     try {
-      const userId = await this.client.mutation(api.users.createUser, userData);
+      const userId = await this.client.mutation("users:createUser", userData);
       return userId;
     } catch (error) {
       console.error('Error creating user:', error);
@@ -34,10 +34,21 @@ export class ApiService {
     }
   }
 
+  static async verifyLogin(email: string, password: string): Promise<any> {
+    this.initialize();
+    try {
+      const user = await this.client.query("users:verifyLogin", { email, password });
+      return user;
+    } catch (error) {
+      console.error('Error verifying login:', error);
+      return null;
+    }
+  }
+
   static async getUserByEmail(email: string): Promise<any> {
     this.initialize();
     try {
-      const user = await this.client.query(api.users.getUserByEmail, { email });
+      const user = await this.client.query("users:getUserByEmail", { email });
       return user;
     } catch (error) {
       console.error('Error getting user by email:', error);
@@ -48,7 +59,7 @@ export class ApiService {
   static async getUserByBleUuid(bleUuid: string): Promise<any> {
     this.initialize();
     try {
-      const user = await this.client.query(api.users.getUserByBleUuid, { bleUuid });
+      const user = await this.client.query("users:getUserByBleUuid", { bleUuid });
       return user;
     } catch (error) {
       console.error('Error getting user by BLE UUID:', error);
@@ -60,7 +71,7 @@ export class ApiService {
   static async getEvents(): Promise<any[]> {
     this.initialize();
     try {
-      const events = await this.client.query(api.events.listEvents, {});
+      const events = await this.client.query("events:listEvents", {});
       return events;
     } catch (error) {
       console.error('Error getting events:', error);
@@ -71,7 +82,7 @@ export class ApiService {
   static async getUpcomingEvents(): Promise<any[]> {
     this.initialize();
     try {
-      const events = await this.client.query(api.events.listUpcomingEvents, {});
+      const events = await this.client.query("events:listUpcomingEvents", {});
       return events;
     } catch (error) {
       console.error('Error getting upcoming events:', error);
@@ -83,7 +94,7 @@ export class ApiService {
   static async getUserRegistrations(userId: string): Promise<any[]> {
     this.initialize();
     try {
-      const registrations = await this.client.query(api.registrations.getUserRegistrations, { userId });
+      const registrations = await this.client.query("registrations:getUserRegistrations", { userId });
       return registrations;
     } catch (error) {
       console.error('Error getting user registrations:', error);
@@ -94,7 +105,7 @@ export class ApiService {
   static async registerForEvent(userId: string, eventId: string): Promise<void> {
     this.initialize();
     try {
-      await this.client.mutation(api.registrations.registerForEvent, { userId, eventId });
+      await this.client.mutation("registrations:registerForEvent", { userId, eventId });
     } catch (error) {
       console.error('Error registering for event:', error);
       throw error;
@@ -104,7 +115,7 @@ export class ApiService {
   static async unregisterFromEvent(userId: string, eventId: string): Promise<void> {
     this.initialize();
     try {
-      await this.client.mutation(api.registrations.cancelRegistration, { userId, eventId });
+      await this.client.mutation("registrations:cancelRegistration", { userId, eventId });
     } catch (error) {
       console.error('Error unregistering from event:', error);
       throw error;
@@ -112,13 +123,13 @@ export class ApiService {
   }
 
   // Attendance management
-  static async recordAttendance(userId: string, eventId: string, method: string = 'mobile'): Promise<void> {
+  static async recordAttendance(userId: string, eventId: string, scannerSource: string = 'mobile'): Promise<void> {
     this.initialize();
     try {
-      await this.client.mutation(api.attendance.recordAttendance, {
+      await this.client.mutation("attendance:recordAttendance", {
         userId,
         eventId,
-        method,
+        scannerSource,
         timestamp: Date.now(),
       });
     } catch (error) {
@@ -130,7 +141,7 @@ export class ApiService {
   static async getUserAttendance(userId: string): Promise<any[]> {
     this.initialize();
     try {
-      const attendance = await this.client.query(api.attendance.getUserAttendance, { userId });
+      const attendance = await this.client.query("attendance:getUserAttendance", { userId });
       return attendance;
     } catch (error) {
       console.error('Error getting user attendance:', error);

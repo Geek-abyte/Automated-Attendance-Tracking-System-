@@ -77,20 +77,25 @@ std::vector<ScannedDevice> BLEScanner::scan() {
     return std::vector<ScannedDevice>();
   }
   
-  // Reset deduplication if needed
-  resetDeduplication();
+  // Reset deduplication for this scan window (per-scan dedupe)
+  recentDevices.clear();
+  lastDedupeReset = millis();
   
   // Clear previous results
   foundDevices.clear();
   
   Serial.println("Starting BLE scan for " + String(scanDuration) + "ms...");
   
-  // Start scan
-  pBLEScan->start(scanDuration, false);
+  // Start scan (non-blocking)
+  pBLEScan->start(scanDuration / 1000, false); // Convert ms to seconds
   totalScans++;
   
-  // Wait for scan to complete
-  delay(scanDuration + 100);
+  // Wait for scan to complete, but check frequently for stop request
+  unsigned long scanStart = millis();
+  while (millis() - scanStart < scanDuration) {
+    delay(100); // Check every 100ms
+    // Note: stopScanRequested is checked in calling code
+  }
   
   // Stop scan
   pBLEScan->stop();
@@ -141,37 +146,97 @@ void BLEScanner::resetDeduplication() {
 }
 
 bool BLEScanner::shouldIncludeDevice(BLEAdvertisedDevice& device) {
-  // Check if device has a name
-  String name = device.getName();
-  if (name.length() == 0) {
-    return false;
-  }
-  
-  // Check UUID filter
-  if (uuidFilter.length() > 0 && !name.startsWith(uuidFilter)) {
-    return false;
-  }
-  
-  // Check RSSI threshold
+  // Check RSSI threshold first (performance)
   if (device.getRSSI() < -80) { // -80 dBm threshold
     return false;
   }
   
-  // Check deduplication
+  // Extract UUID up front (manufacturer data preferred)
   String uuid = extractUUID(device);
-  if (recentDevices.find(uuid) != recentDevices.end()) {
+  if (uuid.length() == 0) {
     return false;
   }
   
-  // Add to recent devices
+  // Accept if either:
+  // - We detect our service UUID, OR
+  // - Device name matches filter, OR
+  // - Extracted UUID starts with our prefix (manufacturer data path)
+  bool hasServiceUuid = false;
+  if (device.haveServiceUUID()) {
+    BLEUUID serviceUuid("0000FFF0-0000-1000-8000-00805F9B34FB");
+    hasServiceUuid = device.isAdvertisingService(serviceUuid);
+  }
+  
+  bool nameMatches = false;
+  String name = String(device.getName().c_str());
+  if (name.length() > 0 && uuidFilter.length() > 0) {
+    nameMatches = name.startsWith(uuidFilter);
+  }
+  
+  bool uuidMatches = uuid.startsWith("ATT-");
+  if (!hasServiceUuid && !nameMatches && !uuidMatches) {
+    return false;
+  }
+  
+  // Check deduplication by extracted UUID
+  if (recentDevices.find(uuid) != recentDevices.end()) {
+    return false;
+  }
   recentDevices.insert(uuid);
   
   return true;
 }
 
 String BLEScanner::extractUUID(BLEAdvertisedDevice& device) {
-  // Use device name as UUID (same as Python scanner)
-  String name = device.getName();
+  // First, try to get UUID from manufacturer data (react-native-ble-advertiser format)
+  if (device.haveManufacturerData()) {
+    try {
+      std::string manufacturerData = device.getManufacturerData();
+      
+      if (manufacturerData.length() >= 2) {
+        // Skip first 2 bytes (company ID: 0xFFFF)
+        // Convert remaining bytes to string (user ID)
+        String uuid = "";
+        for (size_t i = 2; i < manufacturerData.length(); i++) {
+          uuid += (char)manufacturerData[i];
+        }
+        uuid.trim();
+        
+        // Check if it looks like our UUID format (ATT-USER-XXXXXXXX)
+        if (uuid.length() > 0 && uuid.startsWith("ATT-")) {
+          Serial.println("Extracted UUID from manufacturer data: " + uuid);
+          return uuid;
+        }
+      }
+    } catch (...) {
+      // If manufacturer data extraction fails, fall through
+    }
+  }
+  
+  // Second, try to get UUID from service data (backup method)
+  if (device.haveServiceData()) {
+    try {
+      std::string serviceData = device.getServiceData();
+      
+      if (serviceData.length() > 0) {
+        String uuid = "";
+        for (size_t i = 0; i < serviceData.length(); i++) {
+          uuid += (char)serviceData[i];
+        }
+        uuid.trim();
+        
+        if (uuid.length() > 0 && uuid.startsWith("ATT-")) {
+          Serial.println("Extracted UUID from service data: " + uuid);
+          return uuid;
+        }
+      }
+    } catch (...) {
+      // Fall through to device name
+    }
+  }
+  
+  // Fallback: use device name as UUID (primary method for Classic BT compatibility)
+  String name = String(device.getName().c_str());
   name.trim();
   return name;
 }
@@ -180,9 +245,9 @@ void BLEScanner::onDeviceFound(BLEAdvertisedDevice& device) {
   if (shouldIncludeDevice(device)) {
     ScannedDevice scannedDevice;
     scannedDevice.uuid = extractUUID(device);
-    scannedDevice.name = device.getName();
+    scannedDevice.name = String(device.getName().c_str());
     scannedDevice.rssi = device.getRSSI();
-    scannedDevice.address = device.getAddress().toString();
+    scannedDevice.address = String(device.getAddress().toString().c_str());
     scannedDevice.timestamp = millis();
     
     foundDevices.push_back(scannedDevice);

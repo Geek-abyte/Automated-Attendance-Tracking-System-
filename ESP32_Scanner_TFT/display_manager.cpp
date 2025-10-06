@@ -9,19 +9,20 @@ DisplayManager::DisplayManager() : tft(TFT_CS, TFT_DC, TFT_RST) {
   needsRefresh = true;
   lastUpdate = 0;
   eventCount = 0;
-  currentState = STATE_STARTUP;
+  currentState = STATE_LOADING;
   statusMessage = "";
   scanCount = 0;
-  lastScanTime = 0;
 }
 
 bool DisplayManager::begin() {
+  Serial.println("Initializing TFT display...");
+  
   // Initialize TFT display
-  tft.initR(INITR_BLACKTAB);  // Initialize for ST7735R chip
+  tft.initR(INITR_BLACKTAB);
   tft.setRotation(1);         // Landscape orientation
   tft.fillScreen(COLOR_BLACK);
   
-  Serial.println("TFT Display initialized in landscape mode");
+  Serial.println("TFT Display initialized successfully");
   return true;
 }
 
@@ -54,8 +55,15 @@ int DisplayManager::getSelectedIndex() {
   return selectedIndex;
 }
 
-void DisplayManager::showStartup() {
-  currentState = STATE_STARTUP;
+void DisplayManager::showWiFiConnecting(const String& ssid) {
+  currentState = STATE_WIFI_CONNECTING;
+  statusMessage = "Connecting to: " + ssid;
+  needsRefresh = true;
+}
+
+void DisplayManager::showWiFiConnected(const String& ip) {
+  currentState = STATE_WIFI_CONNECTED;
+  statusMessage = "WiFi Connected! IP: " + ip;
   needsRefresh = true;
 }
 
@@ -89,7 +97,6 @@ void DisplayManager::showScanning(const String& eventName) {
   currentState = STATE_SCANNING;
   statusMessage = "Scanning: " + eventName;
   scanCount = 0;
-  lastScanTime = millis();
   needsRefresh = true;
 }
 
@@ -110,22 +117,13 @@ void DisplayManager::showAttendanceRecorded(const String& deviceName) {
   needsRefresh = true;
 }
 
-void DisplayManager::setEvents(const Event* events, int count) {
-  eventCount = count;
-  maxItems = count;
-  selectedIndex = 0;
-  
-  for (int i = 0; i < count && i < MAX_EVENTS; i++) {
-    this->events[i] = events[i];
-  }
-  
-  needsRefresh = true;
-}
-
 void DisplayManager::refresh() {
   switch (currentState) {
-    case STATE_STARTUP:
-      drawStartupScreen();
+    case STATE_WIFI_CONNECTING:
+      drawWiFiConnecting();
+      break;
+    case STATE_WIFI_CONNECTED:
+      drawWiFiConnected();
       break;
     case STATE_LOADING:
       drawLoadingScreen();
@@ -166,19 +164,44 @@ void DisplayManager::drawStatus(const String& status) {
   tft.print(status);
 }
 
-void DisplayManager::drawStartupScreen() {
+void DisplayManager::drawWiFiConnecting() {
   clearScreen();
-  drawTitle("ESP32 Scanner");
+  drawTitle("WiFi Connection");
   
   tft.setTextColor(COLOR_CYAN);
   tft.setTextSize(1);
   tft.setCursor(LEFT_MARGIN, 40);
-  tft.print("Initializing...");
+  tft.print(statusMessage);
+  
+  // Draw connecting animation
+  static int animFrame = 0;
+  animFrame = (animFrame + 1) % 4;
+  
+  String dots = "";
+  for (int i = 0; i < animFrame + 1; i++) {
+    dots += ".";
+  }
   
   tft.setCursor(LEFT_MARGIN, 55);
-  tft.print("Version: 2.0.0");
+  tft.print("Connecting" + dots);
   
-  drawStatus("Starting up");
+  drawStatus("Please wait");
+}
+
+void DisplayManager::drawWiFiConnected() {
+  clearScreen();
+  drawTitle("WiFi Connected");
+  
+  tft.setTextColor(COLOR_GREEN);
+  tft.setTextSize(1);
+  tft.setCursor(LEFT_MARGIN, 40);
+  tft.print(statusMessage);
+  
+  tft.setTextColor(COLOR_CYAN);
+  tft.setCursor(LEFT_MARGIN, 60);
+  tft.print("Loading events...");
+  
+  drawStatus("Connected");
 }
 
 void DisplayManager::drawLoadingScreen() {
@@ -190,7 +213,7 @@ void DisplayManager::drawLoadingScreen() {
   tft.setCursor(LEFT_MARGIN, 40);
   tft.print(statusMessage);
   
-  // Draw loading animation
+  // Draw loading animation (spinning dots)
   static int animFrame = 0;
   animFrame = (animFrame + 1) % 4;
   
@@ -236,7 +259,7 @@ void DisplayManager::drawEventList() {
     tft.print(events[i].name);
   }
   
-  drawStatus("Use UP/DOWN to navigate, ENTER to select");
+  drawStatus("UP/DOWN: Navigate, ENTER: Select");
 }
 
 void DisplayManager::drawEventSelected() {
@@ -284,7 +307,12 @@ void DisplayManager::drawScanningScreen() {
   tft.setCursor(LEFT_MARGIN, 80);
   tft.print(statusMessage);
   
-  drawStatus("Press ENTER to stop");
+  // Draw scanning status
+  tft.setTextColor(COLOR_YELLOW);
+  tft.setCursor(LEFT_MARGIN, 95);
+  tft.print("Looking for ATT- devices");
+  
+  drawStatus("ENTER: Stop scanning");
 }
 
 void DisplayManager::drawErrorScreen() {
@@ -301,23 +329,4 @@ void DisplayManager::drawErrorScreen() {
   tft.print("Press ENTER to retry");
   
   drawStatus("System error");
-}
-
-// Removed duplicate drawStartupScreen definition
-
-void DisplayManager::drawMenu() {
-  for (int i = 0; i < maxItems; i++) {
-    int y = MENU_START_Y + (i * LINE_HEIGHT);
-    
-    if (i == selectedIndex) {
-      // Highlight selected item
-      tft.fillRect(LEFT_MARGIN, y - 2, SCREEN_WIDTH - LEFT_MARGIN - RIGHT_MARGIN, LINE_HEIGHT, COLOR_BLUE);
-      tft.setTextColor(COLOR_WHITE);
-    } else {
-      tft.setTextColor(COLOR_CYAN);
-    }
-    
-    tft.setCursor(LEFT_MARGIN + 5, y);
-    tft.print("Item " + String(i + 1));
-  }
 }

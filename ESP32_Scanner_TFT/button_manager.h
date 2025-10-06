@@ -5,45 +5,31 @@
 
 class ButtonManager {
 private:
-  // Debounced stable states
-  bool buttonUpState;
-  bool buttonEnterState;
-  bool buttonDownState;
-
-  // Last reported states (for edge detection)
-  bool reportedUpState;
-  bool reportedEnterState;
-  bool reportedDownState;
-
-  // Raw last reads (for debouncing)
-  bool lastRawUp;
-  bool lastRawEnter;
-  bool lastRawDown;
-
-  // Per-button debounce timers
-  unsigned long lastDebounceTimeUp;
-  unsigned long lastDebounceTimeEnter;
-  unsigned long lastDebounceTimeDown;
-
+  bool upPressed;
+  bool downPressed;
+  bool enterPressed;
+  
+  bool upLastState;
+  bool downLastState;
+  bool enterLastState;
+  
+  unsigned long lastDebounceTime;
   unsigned long debounceDelay;
+  unsigned long enterPressedAtMs;
   
 public:
   ButtonManager();
   bool begin();
   void update();
   
-  // Button state checks
+  // Button state queries
   bool isUpPressed();
-  bool isEnterPressed();
   bool isDownPressed();
-  
-  // Button click detection (pressed and released)
-  bool isUpClicked();
-  bool isEnterClicked();
-  bool isDownClicked();
+  bool isEnterPressed();
+  bool isEnterHeld(unsigned long requiredHoldMs);
   
 private:
-  bool readButton(int pin, bool& lastState);
+  bool readButton(int pin);
 };
 
 // Global button manager instance

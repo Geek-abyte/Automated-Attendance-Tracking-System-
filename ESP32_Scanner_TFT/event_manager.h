@@ -13,6 +13,10 @@ private:
   String selectedEventId;
   String selectedEventName;
   
+  // Cache of registered devices for the selected event
+  std::vector<String> registeredDevices;
+  bool devicesLoaded;
+  
 public:
   EventManager();
   void begin();
@@ -27,6 +31,10 @@ public:
   String getSelectedEventId();
   String getSelectedEventName();
   int getSelectedEventIndex();
+  
+  // Load registered devices for selected event
+  bool loadRegisteredDevices(BackendClient& backend);
+  int getRegisteredDeviceCount();
   
   // Event access
   Event* getEventList();
@@ -46,6 +54,7 @@ public:
   
 private:
   void clearEvents();
+  void clearRegisteredDevices();
   bool addEvent(const Event& event);
 };
 

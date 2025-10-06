@@ -1,12 +1,13 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import Link from "next/link";
 import { format } from "date-fns";
 
 export default function AdminDashboard() {
-  const events = useQuery("events:listEvents" as any, { limit: 5 });
-  const users = useQuery("users:listUsers" as any);
+  const events = useQuery(api.events.listEvents, { limit: 5 });
+  const users = useQuery(api.users.listUsers, {});
 
   const recentEvents = events?.slice(0, 3) || [];
   const totalUsers = users?.length || 0;

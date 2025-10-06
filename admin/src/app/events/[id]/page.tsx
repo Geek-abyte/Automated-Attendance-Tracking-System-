@@ -32,17 +32,27 @@ export default function EventDetailsPage() {
   const router = useRouter();
   const eventId = params.id as string;
 
-  const event = useQuery(api.events.getEvent, { eventId }) as Event | undefined;
+  // Validate eventId format - Convex IDs have a specific format (start with j, k, or other letters followed by alphanumeric)
+  const isValidId = eventId && typeof eventId === 'string' && eventId.length > 10 && /^[a-z][a-z0-9_]+$/i.test(eventId);
+
+  const event = useQuery(
+    api.events.getEvent, 
+    isValidId ? { eventId: eventId as any } : "skip"
+  ) as Event | undefined | null;
+  
   const users = useQuery(api.users.listUsers, {}) as User[] | undefined;
+  
   // Get attendance data with user details included
-  const attendance = useQuery(api.attendance.getEventAttendanceWithUsers, { 
-    eventId
-  }) as any[] | undefined;
+  const attendance = useQuery(
+    api.attendance.getEventAttendance, 
+    isValidId ? { eventId: eventId as any, includeUserDetails: true } : "skip"
+  ) as any[] | undefined | null;
   
   // Get attendance summaries with percentages
-  const attendanceSummaries = useQuery(api.attendance.getEventAttendanceSummaries, { 
-    eventId
-  }) as any[] | undefined;
+  const attendanceSummaries = useQuery(
+    api.attendance.getEventAttendanceSummaries, 
+    isValidId ? { eventId: eventId as any } : "skip"
+  ) as any[] | undefined | null;
   
   const setEventActive = useMutation(api.events.setEventActive);
   const deleteEvent = useMutation(api.events.deleteEvent);
@@ -70,6 +80,34 @@ export default function EventDetailsPage() {
       setIsDeleting(false);
     }
   };
+
+  // Handle invalid ID
+  if (!isValidId) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-4">
+                <Link
+                  href="/events"
+                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                >
+                  ← Events
+                </Link>
+                <h1 className="text-xl font-semibold text-gray-900">Invalid Event ID</h1>
+              </div>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <p className="text-gray-600">The event ID in the URL is invalid.</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   if (event === undefined) {
     return (
@@ -126,15 +164,42 @@ export default function EventDetailsPage() {
     );
   }
 
-  // Calculate statistics from attendance summaries
-  const uniqueAttendees = attendanceSummaries?.length || 0;
-  const averageAttendancePercentage = uniqueAttendees > 0 
-    ? attendanceSummaries?.reduce((sum: number, s: any) => sum + s.attendancePercentage, 0) / uniqueAttendees 
+  // Calculate statistics from summaries, with fallback to raw attendance
+  const rawUniqueUserCount = attendance ? new Set(attendance.map((r: any) => r.userId)).size : 0;
+  const uniqueAttendees = (attendanceSummaries && attendanceSummaries.length > 0)
+    ? attendanceSummaries.length
+    : rawUniqueUserCount;
+  const averageAttendancePercentage = (attendanceSummaries && attendanceSummaries.length > 0 && uniqueAttendees > 0)
+    ? attendanceSummaries.reduce((sum: number, s: any) => sum + s.attendancePercentage, 0) / uniqueAttendees
     : 0;
-  
+
   // Get unique users from attendance records (for backward compatibility)
   const uniqueUsers = attendance ? [...new Map(attendance.map((record: any) => [record.user?.name || record.userId, record])).values()] : [];
   const attendanceCount = uniqueUsers.length;
+
+  // Build client-side summaries if server summaries are not available
+  const clientSummaries = (() => {
+    if (!attendance || attendance.length === 0) return [] as any[];
+    const byUser = new Map<string, any>();
+    for (const rec of attendance) {
+      const key = String(rec.userId);
+      const existing = byUser.get(key) || {
+        userId: rec.userId,
+        user: rec.user || null,
+        totalScans: 0,
+        presentScans: 0,
+        firstSeen: undefined as number | undefined,
+        lastSeen: undefined as number | undefined,
+      };
+      const ts = rec.scanTime ?? rec.timestamp ?? rec._creationTime;
+      existing.totalScans += 1;
+      existing.presentScans += rec.isPresent ? 1 : 0;
+      existing.firstSeen = existing.firstSeen === undefined ? ts : Math.min(existing.firstSeen, ts);
+      existing.lastSeen = existing.lastSeen === undefined ? ts : Math.max(existing.lastSeen, ts);
+      byUser.set(key, existing);
+    }
+    return Array.from(byUser.values());
+  })();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -342,6 +407,32 @@ export default function EventDetailsPage() {
                     </tbody>
                   </table>
                 </div>
+              ) : clientSummaries && clientSummaries.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scans</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Seen</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {clientSummaries.map((summary: any) => (
+                        <tr key={String(summary.userId)} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">{summary.user?.name || 'Unknown User'}</div>
+                            <div className="text-sm text-gray-500">{summary.user?.email || 'N/A'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{summary.presentScans} / {summary.totalScans}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{summary.firstSeen ? format(new Date(summary.firstSeen), "MMM dd, HH:mm") : 'N/A'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{summary.lastSeen ? format(new Date(summary.lastSeen), "MMM dd, HH:mm") : 'N/A'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
                 <div className="p-12 text-center">
                   <div className="text-gray-400 mb-4">
@@ -351,6 +442,64 @@ export default function EventDetailsPage() {
                   </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">No attendance recorded</h3>
                   <p className="text-gray-600">Attendance will appear here once users check in.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Recent Scans (raw attendance records) */}
+            <div className="bg-white shadow rounded-lg mt-8">
+              <div className="p-6 border-b">
+                <h2 className="text-lg font-medium text-gray-900">Recent Scans</h2>
+                <p className="text-sm text-gray-600 mt-1">All records for this event, including synced and realtime</p>
+              </div>
+              {attendance && attendance.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scanner</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {(attendance
+                        ?.slice()
+                        .sort((a: any, b: any) => {
+                          const at = a.scanTime ?? a.timestamp ?? a._creationTime ?? 0;
+                          const bt = b.scanTime ?? b.timestamp ?? b._creationTime ?? 0;
+                          return bt - at;
+                        }) || []).map((record: any) => (
+                        <tr key={record._id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {format(new Date(record.scanTime ?? record.timestamp ?? record._creationTime), "MMM dd, yyyy 'at' h:mm a")}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">{record.user?.name || 'Unknown User'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{record.user?.email || 'N/A'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${record.synced ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>
+                              {record.synced ? 'Synced' : 'Realtime'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{record.scannerSource || record.deviceId || 'unknown'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-12 text-center">
+                  <div className="text-gray-400 mb-4">
+                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No scans yet</h3>
+                  <p className="text-gray-600">Scans will appear here as they are recorded.</p>
                 </div>
               )}
             </div>

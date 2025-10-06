@@ -6,6 +6,7 @@ export default defineSchema({
   users: defineTable({
     email: v.string(),
     name: v.string(),
+    passwordHash: v.string(), // Hashed password for authentication
     bleUuid: v.string(), // Unique BLE identifier for device detection
     role: v.optional(v.union(v.literal("admin"), v.literal("user"))), // User role
     createdAt: v.number(),

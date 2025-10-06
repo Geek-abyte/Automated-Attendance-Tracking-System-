@@ -1,27 +1,26 @@
 /*
- * ESP32 Attendance Scanner with TFT Display
- * Clean, focused implementation for event-based attendance tracking
+ * ESP32 Attendance Scanner - Clean Implementation
  * 
- * Hardware:
- * - TFT Display (ST7735 128x128 RGB)
- * - 3 Push Buttons (UP, DOWN, ENTER) with internal pullup
- * - 2 LEDs (Yellow: Device On, Blue: Scanning)
+ * Flow:
+ * 1. Initialize hardware (display, buttons, LEDs, BLE scanner)
+ * 2. Connect to WiFi
+ * 3. Fetch events from backend
+ * 4. Show event selection menu
+ * 5. User selects event → Immediately activates event and starts scanning
+ * 6. Scan for registered devices using BLE
+ * 7. Record attendance for any registered devices found
+ * 8. Press ENTER while scanning → Stops scan, deactivates event, returns to menu
  * 
- * Process:
- * 1. Boot up and fetch events from backend
- * 2. Display event list for selection
- * 3. User selects event and chooses to begin scan
- * 4. Scanner actively scans for registered devices
- * 5. Records attendance and updates database
+ * Bluetooth Support:
+ * - BLE: Works with mobile app BLE advertising
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <BluetoothSerial.h>
-#include <SPIFFS.h>
+#include <SPI.h>
 #include <ArduinoJson.h>
-#include <WebServer.h>
-#include <ArduinoOTA.h>
+#include <time.h>
+#include <HTTPClient.h>
 
 // Hardware includes
 #include "hardware_config.h"
@@ -31,6 +30,12 @@
 #include "backend_client.h"
 #include "ble_scanner.h"
 #include "event_manager.h"
+
+// Configuration
+const char* WIFI_SSID = "Urek Mazino";
+const char* WIFI_PASSWORD = "";
+const char* BACKEND_URL = "https://combative-deer-426.convex.cloud/http";
+const char* API_KEY = "att_3sh4fmd2u14ffisevqztm";
 
 // Global objects
 DisplayManager display;
@@ -43,6 +48,8 @@ EventManager events;
 // System state
 enum SystemState {
   STATE_INIT,
+  STATE_WIFI_CONNECTING,
+  STATE_WIFI_CONNECTED,
   STATE_LOADING_EVENTS,
   STATE_EVENT_SELECTION,
   STATE_EVENT_ACTIVE,
@@ -51,21 +58,17 @@ enum SystemState {
 };
 
 SystemState currentState = STATE_INIT;
-unsigned long lastUpdate = 0;
-unsigned long lastScan = 0;
 String errorMessage = "";
-int eventLoadRetries = 0;
-const int MAX_EVENT_RETRIES = 5;
-
-// Event data
 String selectedEventId = "";
 String selectedEventName = "";
-bool isScanning = false;
+int eventLoadRetries = 0;
+const int MAX_EVENT_RETRIES = 3;
+bool stopScanRequested = false;
 
 void setup() {
   Serial.begin(115200);
   Serial.println("\n=== ESP32 Attendance Scanner ===");
-  Serial.println("Version: 2.0.0");
+  Serial.println("Version: 3.0.0");
   
   // Initialize hardware
   if (!initializeHardware()) {
@@ -73,53 +76,24 @@ void setup() {
     return;
   }
   
-  // Initialize storage
-  if (!SPIFFS.begin(true)) {
-    setError("Storage initialization failed");
-    return;
-  }
-  
-  // Initialize WiFi
-  if (!initializeWiFi()) {
-    setError("WiFi initialization failed");
-    return;
-  }
-  
-  // Initialize backend client
-  backend.begin();
-  {
-    String url = loadConfig("backend_url");
-    String key = loadConfig("api_key");
-    if (url.length() > 0) {
-      backend.setBaseURL(url);
-    }
-    if (key.length() > 0) {
-      backend.setAPIKey(key);
-    }
-  }
-  
-  // Initialize BLE scanner
-  if (!bleScanner.begin()) {
-    setError("BLE scanner initialization failed");
-    return;
-  }
-  
-  // Initialize event manager
-  events.begin();
-  
-  // Setup OTA
-  setupOTA();
-  
-  // Start loading events
-  currentState = STATE_LOADING_EVENTS;
-  display.showLoading("Loading events...");
+  // Start the main flow
+  currentState = STATE_WIFI_CONNECTING;
+  display.showWiFiConnecting(WIFI_SSID);
   
   Serial.println("System initialized successfully");
 }
 
 void loop() {
-  // Handle OTA updates
-  ArduinoOTA.handle();
+  // Check WiFi connection periodically
+  static unsigned long lastWiFiCheck = 0;
+  if (millis() - lastWiFiCheck > 5000) { // Check every 5 seconds
+    if (WiFi.status() != WL_CONNECTED && currentState != STATE_WIFI_CONNECTING) {
+      Serial.println("⚠️ WiFi disconnected! Attempting to reconnect...");
+      currentState = STATE_WIFI_CONNECTING;
+      display.showLoading("WiFi reconnecting...");
+    }
+    lastWiFiCheck = millis();
+  }
   
   // Update hardware
   updateHardware();
@@ -127,11 +101,13 @@ void loop() {
   // Update system state
   updateSystemState();
   
-  // Small delay to prevent watchdog reset
+  // Small delay
   delay(10);
 }
 
 bool initializeHardware() {
+  Serial.println("Initializing hardware...");
+  
   // Initialize display
   if (!display.begin()) {
     Serial.println("Failed to initialize display");
@@ -150,44 +126,21 @@ bool initializeHardware() {
     return false;
   }
   
-  // Show startup screen
-  display.showStartup();
+  // Initialize backend
+  backend.begin();
+  backend.setBaseURL(BACKEND_URL);
+  backend.setAPIKey(API_KEY);
   
-  return true;
-}
-
-bool initializeWiFi() {
-  // Load WiFi credentials from storage
-  String ssid = loadConfig("wifi_ssid");
-  String password = loadConfig("wifi_password");
-  
-  if (ssid.length() == 0) {
-    // No WiFi configured, start AP mode
-    return startAPMode();
+  // Initialize BLE scanner
+  if (!bleScanner.begin()) {
+    Serial.println("Failed to initialize BLE scanner");
+    return false;
   }
   
-  // Connect to WiFi
-  WiFi.begin(ssid.c_str(), password.c_str());
+  // Initialize event manager
+  events.begin();
   
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    attempts++;
-    Serial.print(".");
-  }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
-    return true;
-  } else {
-    Serial.println("\nWiFi connection failed, starting AP mode");
-    return startAPMode();
-  }
-}
-
-bool startAPMode() {
-  WiFi.softAP("ESP32-Scanner", "attendance123");
-  Serial.println("AP mode started: ESP32-Scanner");
+  Serial.println("Hardware initialization complete");
   return true;
 }
 
@@ -196,15 +149,31 @@ void updateHardware() {
   buttons.update();
   
   // Handle button presses
-  if (buttons.isUpClicked()) {
+  if (buttons.isUpPressed()) {
     display.navigateUp();
   }
   
-  if (buttons.isDownClicked()) {
+  if (buttons.isDownPressed()) {
     display.navigateDown();
   }
   
-  if (buttons.isEnterClicked()) {
+  // ENTER handling with long-press requirement during scanning
+  if (currentState == STATE_SCANNING) {
+    static bool stopTriggered = false;
+    static unsigned long pressedAt = 0;
+    if (buttons.isEnterPressed()) {
+      if (pressedAt == 0) pressedAt = millis();
+      const unsigned long held = millis() - pressedAt;
+      if (!stopTriggered && held >= 1000) { // require ≥1000ms
+        stopTriggered = true;
+        Serial.println("Long-press ENTER detected (>=1s). Stopping scan.");
+        handleEnterPress();
+      }
+    } else {
+      pressedAt = 0;
+      stopTriggered = false;
+    }
+  } else if (buttons.isEnterPressed()) {
     handleEnterPress();
   }
   
@@ -216,46 +185,29 @@ void updateHardware() {
 }
 
 void updateSystemState() {
-  unsigned long now = millis();
-  
-  // Check WiFi connection status
-  if (currentState != STATE_INIT && WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi disconnected, attempting reconnection...");
-    if (initializeWiFi()) {
-      Serial.println("WiFi reconnected successfully");
-    } else {
-      Serial.println("WiFi reconnection failed");
-    }
-  }
-  
   switch (currentState) {
+    case STATE_WIFI_CONNECTING:
+      if (connectToWiFi()) {
+        currentState = STATE_WIFI_CONNECTED;
+        display.showWiFiConnected(WiFi.localIP().toString());
+        delay(2000);
+        currentState = STATE_LOADING_EVENTS;
+        display.showLoading("Loading events...");
+      }
+      break;
+      
     case STATE_LOADING_EVENTS:
-      if (now - lastUpdate >= 2000) { // Check every 2 seconds
-        Serial.println("Attempting to load events from backend... (Attempt " + String(eventLoadRetries + 1) + "/" + String(MAX_EVENT_RETRIES) + ")");
-        Serial.println("WiFi Status: " + String(WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected"));
-        Serial.println("Backend Connected: " + String(backend.isConnected() ? "Yes" : "No"));
-        
-        if (loadEventsFromBackend()) {
-          Serial.println("Events loaded successfully: " + String(events.getEventCount()) + " events");
-          currentState = STATE_EVENT_SELECTION;
-          display.showEventList(events.getEventList(), events.getEventCount());
-          eventLoadRetries = 0; // Reset retry counter on success
+      if (loadEvents()) {
+        currentState = STATE_EVENT_SELECTION;
+        display.showEventList(events.getEventList(), events.getEventCount());
+      } else {
+        eventLoadRetries++;
+        if (eventLoadRetries >= MAX_EVENT_RETRIES) {
+          setError("Failed to load events after " + String(MAX_EVENT_RETRIES) + " attempts");
         } else {
-          eventLoadRetries++;
-          Serial.println("Failed to load events: " + backend.getLastError());
-          
-          if (eventLoadRetries >= MAX_EVENT_RETRIES) {
-            Serial.println("Max retries reached, showing test events");
-            setError("Backend unavailable. Using test events.");
-            // Force load test events
-            events.addTestEvents();
-            currentState = STATE_EVENT_SELECTION;
-            display.showEventList(events.getEventList(), events.getEventCount());
-          } else {
-            display.showLoading("Failed to load events. Retrying... (" + String(eventLoadRetries) + "/" + String(MAX_EVENT_RETRIES) + ")");
-          }
+          display.showLoading("Retrying... (" + String(eventLoadRetries) + "/" + String(MAX_EVENT_RETRIES) + ")");
+          delay(2000);
         }
-        lastUpdate = now;
       }
       break;
       
@@ -268,10 +220,8 @@ void updateSystemState() {
       break;
       
     case STATE_SCANNING:
-      if (now - lastScan >= 5000) { // Scan every 5 seconds
-        performScan();
-        lastScan = now;
-      }
+      // Perform BLE scan
+      performScan();
       break;
       
     case STATE_ERROR:
@@ -283,29 +233,144 @@ void updateSystemState() {
   updateLEDStates();
 }
 
+// Get current Unix timestamp in milliseconds (requires NTP sync)
+unsigned long long getCurrentTimestamp() {
+  time_t now;
+  time(&now);
+  
+  if (now < 1000000000) {
+    // Time not synced yet - this is bad!
+    Serial.println("WARNING: Time not synced, using millis() - attendance may fail!");
+    return millis(); // Fallback but will cause backend errors
+  }
+  
+  // Convert seconds to milliseconds and return
+  return ((unsigned long long)now) * 1000ULL;
+}
+
+bool connectToWiFi() {
+  static unsigned long lastAttempt = 0;
+  static int attempts = 0;
+  
+  // Try to connect every 2 seconds
+  if (millis() - lastAttempt < 2000) {
+    return false;
+  }
+  
+  lastAttempt = millis();
+  attempts++;
+  
+  Serial.println("WiFi attempt " + String(attempts) + ": Connecting to " + String(WIFI_SSID));
+  
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true, true);
+  delay(100);
+  
+  if (strlen(WIFI_PASSWORD) == 0) {
+    WiFi.begin(WIFI_SSID);
+  } else {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  }
+  
+  // Wait for connection
+  int waitAttempts = 0;
+  while (WiFi.status() != WL_CONNECTED && waitAttempts < 20) {
+    delay(500);
+    waitAttempts++;
+    Serial.print(".");
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
+    
+    // Configure time sync with NTP
+    Serial.println("Syncing time with NTP...");
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    
+    // Wait up to 5 seconds for time to be set
+    int timeoutCount = 0;
+    time_t now = time(nullptr);
+    while (now < 1000000000 && timeoutCount < 50) {
+      delay(100);
+      now = time(nullptr);
+      timeoutCount++;
+    }
+    
+    if (now > 1000000000) {
+      Serial.println("Time synced: " + String(ctime(&now)));
+    } else {
+      Serial.println("Warning: Time sync failed, timestamps may be incorrect");
+    }
+    
+    return true;
+  } else {
+    Serial.println("\nWiFi connection failed");
+    if (attempts >= 5) {
+      Serial.println("Max WiFi attempts reached, starting AP mode");
+      WiFi.softAP("ESP32-Scanner", "attendance123");
+      return true; // AP mode counts as "connected" for our purposes
+    }
+    return false;
+  }
+}
+
+bool loadEvents() {
+  Serial.println("Loading events from backend...");
+  
+  if (!backend.isConnected()) {
+    Serial.println("Backend not connected");
+    return false;
+  }
+  
+  // Test backend connection first
+  Serial.println("Testing backend health...");
+  if (backend.healthCheck()) {
+    Serial.println("Backend health check passed");
+  } else {
+    Serial.println("Backend health check failed: " + backend.getLastError());
+  }
+  
+  // Test simple HTTP connection
+  Serial.println("Testing simple HTTP connection...");
+  testSimpleConnection();
+  
+  if (events.loadFromBackend(backend)) {
+    Serial.println("Events loaded successfully: " + String(events.getEventCount()) + " events");
+    return true;
+  } else {
+    Serial.println("Failed to load events: " + backend.getLastError());
+    return false;
+  }
+}
+
 void handleEnterPress() {
   switch (currentState) {
     case STATE_EVENT_SELECTION:
+      // Select event and immediately start scanning
       if (events.selectEvent(display.getSelectedIndex())) {
         selectedEventId = events.getSelectedEventId();
         selectedEventName = events.getSelectedEventName();
-        currentState = STATE_EVENT_ACTIVE;
-        display.showEventSelected(selectedEventName);
+        Serial.println("Event selected: " + selectedEventName);
+        startScanning();  // Immediately start scanning
       }
       break;
       
     case STATE_EVENT_ACTIVE:
+      // This state is no longer used, but kept for compatibility
       startScanning();
       break;
       
     case STATE_SCANNING:
-      stopScanning();
+      // Set flag to stop scanning and return to event menu
+      stopScanRequested = true;
+      Serial.println("Stop scan requested by user");
       break;
       
     case STATE_ERROR:
       // Reset system
-      currentState = STATE_LOADING_EVENTS;
-      display.showLoading("Restarting...");
+      currentState = STATE_WIFI_CONNECTING;
+      display.showWiFiConnecting(WIFI_SSID);
+      eventLoadRetries = 0;
       break;
   }
 }
@@ -316,36 +381,144 @@ void startScanning() {
     return;
   }
   
-  isScanning = true;
+  // Reset stop flag
+  stopScanRequested = false;
+  
+  // Activate event in backend
+  Serial.println("Activating event in backend...");
+  display.showLoading("Activating event...");
+  
+  if (!backend.activateEvent(selectedEventId)) {
+    Serial.println("Warning: Failed to activate event");
+    Serial.println("Error: " + backend.getLastError());
+    // Continue anyway - event might already be active
+  } else {
+    Serial.println("Event activated successfully!");
+  }
+  
+  delay(500); // Brief pause to show activation message
+  
+  // Load registered devices for this event
+  Serial.println("Loading registered devices for event...");
+  display.showLoading("Loading registered devices...");
+  
+  if (!events.loadRegisteredDevices(backend)) {
+    setError("Failed to load registered devices");
+    return;
+  }
+  
+  int deviceCount = events.getRegisteredDeviceCount();
+  Serial.println("Found " + String(deviceCount) + " registered devices");
+  
+  if (deviceCount == 0) {
+    Serial.println("Warning: No registered devices for this event");
+    display.showLoading("Warning: No devices!");
+    delay(2000);
+  }
+  
   currentState = STATE_SCANNING;
   display.showScanning(selectedEventName);
-  Serial.println("Started scanning for event: " + selectedEventName);
+  Serial.println("=== SCANNING ACTIVATED ===");
+  Serial.println("Event: " + selectedEventName);
+  Serial.println("Event ID: " + selectedEventId);
+  Serial.println("Registered devices: " + String(deviceCount));
+  Serial.println("Looking for devices with 'ATT-' prefix");
+  Serial.println("Hold ENTER (≥0.8s) to stop scanning");
 }
 
 void stopScanning() {
-  isScanning = false;
-  currentState = STATE_EVENT_ACTIVE;
-  display.showEventSelected(selectedEventName);
-  Serial.println("Stopped scanning");
+  Serial.println("=== STOPPING SCAN ===");
+  Serial.println("Deactivating event and returning to menu");
+  
+  // Show loading screen
+  display.showLoading("Stopping scan...");
+  display.update();
+  
+  // Deactivate event on backend (deactivates ALL events)
+  Serial.println("Deactivating event on backend...");
+  String response;
+  if (backend.makeRequest("deactivate-events", "POST", "", response)) {
+    Serial.println("✅ Event deactivated successfully");
+    
+    // Parse response
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, response);
+    if (!error && doc["success"]) {
+      int deactivatedCount = doc["deactivatedCount"] | 0;
+      Serial.println("   Deactivated " + String(deactivatedCount) + " event(s)");
+    }
+  } else {
+    Serial.println("⚠️ Warning: Failed to deactivate event on backend");
+    Serial.println("   Error: " + backend.getLastError());
+    // Continue anyway - user wants to stop scanning
+  }
+  
+  // Clear event selection
+  selectedEventId = "";
+  selectedEventName = "";
+  
+  // Reset stop flag
+  stopScanRequested = false;
+  
+  // Return to event selection menu
+  currentState = STATE_EVENT_SELECTION;
+  display.showEventList(events.getEventList(), events.getEventCount());
+  
+  Serial.println("=== SCAN STOPPED ===");
+  Serial.println("Select an event to begin scanning");
 }
 
 void performScan() {
-  if (!isScanning) return;
+  // Check if stop was requested
+  if (stopScanRequested) {
+    stopScanning();
+    return;
+  }
   
-  Serial.println("Performing BLE scan...");
+  static unsigned long lastScan = 0;
   
-  // Get BLE devices
+  // Scan every 5 seconds
+  if (millis() - lastScan < 5000) {
+    return;
+  }
+  
+  lastScan = millis();
+  Serial.println("Performing BLE scan for event: " + selectedEventName);
+  
+  // Scan for BLE devices
   std::vector<ScannedDevice> devices = bleScanner.scan();
   
+  // Check if stop was requested during scan
+  if (stopScanRequested) {
+    stopScanning();
+    return;
+  }
+  
   if (devices.size() > 0) {
-    Serial.println("Found " + String(devices.size()) + " devices");
+    Serial.println("Found " + String(devices.size()) + " BLE devices");
     
-    // Process each device
+    // Collect registered devices for batch processing
+    std::vector<ScannedDevice> registeredDevicesList;
+    
     for (const auto& device : devices) {
+      Serial.println("Checking device: " + device.name + " (UUID: " + device.uuid + ")");
+      
       if (isDeviceRegistered(device)) {
-        recordAttendance(device);
+        registeredDevicesList.push_back(device);
+        Serial.println("Device is registered for this event!");
+      } else {
+        Serial.println("Device not registered for this event");
       }
     }
+    
+    Serial.println("Registered devices found: " + String(registeredDevicesList.size()) + "/" + String(devices.size()));
+    
+    // OPTIMIZED: Batch record all attendance in ONE network call
+    if (registeredDevicesList.size() > 0) {
+      recordAttendanceBatch(registeredDevicesList);
+    }
+  } else {
+    Serial.println("No BLE devices found in this scan");
   }
   
   // Update display with scan results
@@ -353,31 +526,84 @@ void performScan() {
 }
 
 bool isDeviceRegistered(const ScannedDevice& device) {
-  // Check if device is registered for the selected event
   return events.isDeviceRegistered(selectedEventId, device.uuid);
 }
 
-void recordAttendance(const ScannedDevice& device) {
-  // Create attendance record
-  JsonDocument record;
-  record["eventId"] = selectedEventId;
-  record["bleUuid"] = device.uuid;
-  record["deviceName"] = device.name;
-  record["rssi"] = device.rssi;
-  record["timestamp"] = millis();
-  record["scannerId"] = "ESP32-Scanner-01";
+// OPTIMIZED: Batch record attendance (single network call!)
+void recordAttendanceBatch(const std::vector<ScannedDevice>& devices) {
+  Serial.println("\n=== Batch Recording Attendance ===");
+  Serial.println("Recording " + String(devices.size()) + " devices in ONE request...");
   
-  // Send to backend
-  if (backend.recordAttendance(record)) {
-    Serial.println("Recorded attendance for: " + device.uuid);
-    display.showAttendanceRecorded(device.name);
-  } else {
-    Serial.println("Failed to record attendance for: " + device.uuid);
+  // Show loading screen
+  display.showLoading("Recording " + String(devices.size()) + " student(s)...");
+  display.update();
+  delay(50); // Give display time to refresh
+  
+  // Create batch records array
+  JsonDocument doc;
+  JsonArray records = doc["records"].to<JsonArray>();
+  
+  for (const auto& device : devices) {
+    JsonObject record = records.add<JsonObject>();
+    record["eventId"] = selectedEventId;
+    record["bleUuid"] = device.uuid;
+    record["deviceName"] = device.name;
+    record["rssi"] = device.rssi;
+    record["timestamp"] = getCurrentTimestamp(); // Use proper Unix timestamp
+    record["scannerSource"] = "ESP32-Scanner-01"; // Changed from scannerId to match backend
   }
+  
+  // Serialize to string
+  String body;
+  serializeJson(doc, body);
+  
+  Serial.println("Request body size: " + String(body.length()) + " bytes");
+  
+  // Use backend client to send (it has proper HTTPS setup)
+  String response;
+  if (backend.makeRequest("batch-checkin", "POST", body, response)) {
+    JsonDocument responseDoc;
+    DeserializationError error = deserializeJson(responseDoc, response);
+    
+    if (!error) {
+      int successful = responseDoc["successful"] | 0;
+      int failed = responseDoc["failed"] | 0;
+      
+      Serial.println("✅ Batch attendance recorded!");
+      Serial.println("   Successful: " + String(successful));
+      Serial.println("   Failed: " + String(failed));
+      
+      // Show success feedback
+      display.showAttendanceRecorded(String(successful) + " student(s)");
+      display.update();
+      delay(1500); // Show success message for 1.5 seconds
+    } else {
+      Serial.println("❌ Failed to parse response");
+      display.showLoading("Error: Bad response");
+      display.update();
+      delay(1500);
+    }
+  } else {
+    Serial.println("❌ Batch recording failed");
+    Serial.println("   Error: " + backend.getLastError());
+    
+    // Show error feedback
+    display.showLoading("Error: Network failed");
+    display.update();
+    delay(1500);
+  }
+  
+  // Return to scanning screen
+  display.showScanning(selectedEventName);
+  display.update();
+  
+  Serial.println("=== Batch Recording Complete ===\n");
 }
 
-bool loadEventsFromBackend() {
-  return events.loadFromBackend(backend);
+// Legacy: Single device recording (kept for compatibility)
+void recordAttendance(const ScannedDevice& device) {
+  std::vector<ScannedDevice> singleDevice = {device};
+  recordAttendanceBatch(singleDevice);
 }
 
 void setError(const String& message) {
@@ -390,6 +616,7 @@ void setError(const String& message) {
 void updateLEDStates() {
   switch (currentState) {
     case STATE_INIT:
+    case STATE_WIFI_CONNECTING:
     case STATE_LOADING_EVENTS:
       leds.setSystemState(false, false);
       break;
@@ -409,72 +636,24 @@ void updateLEDStates() {
   }
 }
 
-void setupOTA() {
-  ArduinoOTA.setHostname("esp32-scanner");
-  ArduinoOTA.setPassword("attendance123");
+void testSimpleConnection() {
+  // Test with a simple HTTP client
+  HTTPClient http;
+  http.begin("https://combative-deer-426.convex.cloud/http/health");
+  http.setTimeout(10000); // 10 second timeout
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-api-key", API_KEY);
   
-  ArduinoOTA.onStart([]() {
-    Serial.println("OTA Start updating");
-  });
+  Serial.println("Testing direct HTTP connection...");
+  int httpCode = http.GET();
+  Serial.println("HTTP Code: " + String(httpCode));
   
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nOTA End");
-  });
-  
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
-  });
-  
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("OTA Error[%u]: ", error);
-  });
-  
-  ArduinoOTA.begin();
-}
-
-String loadConfig(const String& key) {
-  if (!SPIFFS.exists("/config.json")) {
-    return "";
+  if (httpCode > 0) {
+    String response = http.getString();
+    Serial.println("Response: " + response);
+  } else {
+    Serial.println("HTTP request failed with code: " + String(httpCode));
   }
   
-  File file = SPIFFS.open("/config.json", "r");
-  if (!file) {
-    return "";
-  }
-  
-  String content = file.readString();
-  file.close();
-  
-  JsonDocument doc;
-  deserializeJson(doc, content);
-  
-  if (doc.containsKey(key)) {
-    return doc[key].as<String>();
-  }
-  
-  return "";
-}
-
-void saveConfig(const String& key, const String& value) {
-  JsonDocument doc;
-  
-  // Load existing config
-  if (SPIFFS.exists("/config.json")) {
-    File file = SPIFFS.open("/config.json", "r");
-    if (file) {
-      String content = file.readString();
-      file.close();
-      deserializeJson(doc, content);
-    }
-  }
-  
-  // Update value
-  doc[key] = value;
-  
-  // Save config
-  File file = SPIFFS.open("/config.json", "w");
-  if (file) {
-    serializeJson(doc, file);
-    file.close();
-  }
+  http.end();
 }

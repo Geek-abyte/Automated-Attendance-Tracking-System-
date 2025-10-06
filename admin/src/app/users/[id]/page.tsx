@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useMutation } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -28,15 +29,22 @@ export default function UserDetailsPage() {
   const router = useRouter();
   const userId = params.id as string;
 
-  const user = useQuery("users:getUser" as any, { userId }) as User | undefined;
-  // Get user attendance history with event details included
-  const userAttendance = useQuery("attendance:getUserAttendance" as any, { 
-    userId,
-    includeEventDetails: true 
-  }) as any[] | undefined;
+  // Validate userId format - Convex IDs have a specific format (start with j, k, or other letters followed by alphanumeric)
+  const isValidId = userId && typeof userId === 'string' && userId.length > 10 && /^[a-z][a-z0-9_]+$/i.test(userId);
+
+  const user = useQuery(
+    api.users.getUser,
+    isValidId ? { userId: userId as any } : "skip"
+  ) as User | undefined | null;
   
-  const updateUser = useMutation("users:updateUser" as any);
-  const deleteUser = useMutation("users:deleteUser" as any);
+  // Get user attendance history with event details included
+  const userAttendance = useQuery(
+    api.attendance.getUserAttendance,
+    isValidId ? { userId: userId as any, includeEventDetails: true } : "skip"
+  ) as any[] | undefined | null;
+  
+  const updateUser = useMutation(api.users.updateUser);
+  const deleteUser = useMutation(api.users.deleteUser);
   
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -97,6 +105,34 @@ export default function UserDetailsPage() {
     );
     setEditForm((prev) => ({ ...prev, bleUuid: uuid }));
   };
+
+  // Handle invalid ID
+  if (!isValidId) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-4">
+                <Link
+                  href="/users"
+                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                >
+                  ← Users
+                </Link>
+                <h1 className="text-xl font-semibold text-gray-900">Invalid User ID</h1>
+              </div>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <p className="text-gray-600">The user ID in the URL is invalid.</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   if (user === undefined) {
     return (

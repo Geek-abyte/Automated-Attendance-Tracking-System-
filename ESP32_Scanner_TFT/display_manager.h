@@ -18,7 +18,8 @@ private:
   
   // Display states
   enum DisplayState {
-    STATE_STARTUP,
+    STATE_WIFI_CONNECTING,
+    STATE_WIFI_CONNECTED,
     STATE_LOADING,
     STATE_EVENT_LIST,
     STATE_EVENT_SELECTED,
@@ -29,7 +30,6 @@ private:
   DisplayState currentState;
   String statusMessage;
   int scanCount;
-  unsigned long lastScanTime;
   
 public:
   DisplayManager();
@@ -42,35 +42,30 @@ public:
   int getSelectedIndex();
   
   // Display states
-  void showStartup();
+  void showWiFiConnecting(const String& ssid);
+  void showWiFiConnected(const String& ip);
   void showLoading(const String& message);
   void showEventList(const Event* events, int count);
   void showEventSelected(const String& eventName);
   void showScanning(const String& eventName);
   void showError(const String& message);
   
-  // Private drawing methods
-  void drawStartupScreen();
-  
   // Updates
   void updateScanResults(int deviceCount);
   void showAttendanceRecorded(const String& deviceName);
-  
-  // Event management
-  void setEvents(const Event* events, int count);
   
 private:
   void refresh();
   void clearScreen();
   void drawTitle(const String& title);
-  void drawMenu();
   void drawStatus(const String& status);
-  void drawScanningAnimation();
   void drawEventList();
   void drawEventSelected();
   void drawScanningScreen();
   void drawErrorScreen();
   void drawLoadingScreen();
+  void drawWiFiConnecting();
+  void drawWiFiConnected();
 };
 
 // Global display manager instance

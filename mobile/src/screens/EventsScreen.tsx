@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Event, EventRegistration } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { useBluetooth } from '../contexts/BluetoothContextFallback';
+import { useBluetooth } from '../contexts/BluetoothContext';
 import { ApiService } from '../services/api';
 
 interface EventsScreenProps {
@@ -25,12 +25,35 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({ onNavigateToProfile 
   const [loading, setLoading] = useState(true);
   const [registeringEvents, setRegisteringEvents] = useState<Set<string>>(new Set());
   const { user } = useAuth();
-  const { isBroadcasting, startBroadcasting, stopBroadcasting } = useBluetooth();
+  const { isBroadcasting, startBroadcasting, stopBroadcasting, isNativeSupported, broadcastMethod } = useBluetooth();
 
   // Load data on component mount
   useEffect(() => {
     loadData();
   }, [user]);
+
+  // Automatic broadcasting for active events
+  useEffect(() => {
+    if (!user) return;
+
+    // Check if user is registered for any active events
+    const hasActiveEventRegistration = events.some(event => {
+      const isRegistered = isRegisteredForEvent(event._id);
+      const isActive = isEventActive(event);
+      return isRegistered && isActive;
+    });
+
+    // Auto-start broadcasting if user has active event registrations
+    if (hasActiveEventRegistration && !isBroadcasting) {
+      console.log('Auto-starting broadcasting for active event(s)');
+      startBroadcasting();
+    } 
+    // Auto-stop broadcasting if no active events
+    else if (!hasActiveEventRegistration && isBroadcasting) {
+      console.log('Auto-stopping broadcasting - no active events');
+      stopBroadcasting();
+    }
+  }, [events, registrations, user, isBroadcasting]);
 
   const loadData = async () => {
     try {
@@ -119,14 +142,6 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({ onNavigateToProfile 
     } catch (error) {
       console.error('Attendance recording error:', error);
       Alert.alert('Error', 'Failed to record attendance');
-    }
-  };
-
-  const handleToggleBroadcasting = async () => {
-    if (isBroadcasting) {
-      await stopBroadcasting();
-    } else {
-      await startBroadcasting();
     }
   };
 
@@ -228,17 +243,11 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({ onNavigateToProfile 
           )}
 
           {isRegistered && isActive && (
-            <TouchableOpacity
-              style={[
-                styles.button,
-                isBroadcasting ? styles.broadcastingButton : styles.broadcastButton
-              ]}
-              onPress={handleToggleBroadcasting}
-            >
-              <Text style={styles.broadcastButtonText}>
-                {isBroadcasting ? 'Stop Broadcasting' : 'Start Broadcasting'}
+            <View style={styles.autoBroadcastIndicator}>
+              <Text style={styles.autoBroadcastText}>
+                ✓ Auto-broadcasting enabled
               </Text>
-            </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -255,9 +264,26 @@ export const EventsScreen: React.FC<EventsScreenProps> = ({ onNavigateToProfile 
       </View>
 
       {isBroadcasting && (
-        <View style={styles.broadcastingBanner}>
+        <View style={[
+          styles.broadcastingBanner, 
+          broadcastMethod === 'simulation' && styles.simulationBanner,
+          broadcastMethod === 'classic' && styles.classicBanner
+        ]}>
           <Text style={styles.broadcastingText}>
-            🔵 Broadcasting attendance for active events
+            {broadcastMethod === 'classic'
+              ? '🟢 Broadcasting via Bluetooth - Scanner will detect you'
+              : broadcastMethod === 'ble'
+              ? '🔵 Broadcasting via BLE - Scanner will detect you'
+              : '⚠️ Rebuild Required - Native Modules Not Found'
+            }
+          </Text>
+          <Text style={styles.broadcastingSubtext}>
+            {broadcastMethod === 'classic'
+              ? 'Classic Bluetooth (99% compatibility) - Passive tracking active'
+              : broadcastMethod === 'ble'
+              ? 'BLE Advertising (70% compatibility) - Passive tracking active'
+              : 'Run: npx expo prebuild && eas build --profile development'
+            }
           </Text>
         </View>
       )}
@@ -305,12 +331,37 @@ const styles = StyleSheet.create({
   },
   broadcastingBanner: {
     backgroundColor: '#E3F2FD',
-    padding: 12,
+    padding: 16,
     alignItems: 'center',
   },
   broadcastingText: {
     color: '#1976D2',
-    fontWeight: '500',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  broadcastingSubtext: {
+    color: '#1976D2',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  simulationBanner: {
+    backgroundColor: '#FFF3E0',
+  },
+  classicBanner: {
+    backgroundColor: '#E8F5E9',
+  },
+  autoBroadcastIndicator: {
+    flex: 1,
+    backgroundColor: '#E8F5E9',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  autoBroadcastText: {
+    color: '#2E7D32',
+    fontWeight: '600',
+    fontSize: 12,
   },
   eventsList: {
     padding: 16,

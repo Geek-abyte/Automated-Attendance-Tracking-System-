@@ -5,11 +5,11 @@
 
 class LEDManager {
 private:
-  bool deviceOnState;
-  bool scanningState;
-  unsigned long lastBlinkTime;
+  bool systemOn;
+  bool scanning;
+  
+  unsigned long lastBlink;
   bool blinkState;
-  unsigned long blinkInterval;
   
 public:
   LEDManager();
@@ -17,17 +17,12 @@ public:
   void update();
   
   // LED control
-  void setDeviceOn(bool state);
-  void setScanning(bool state);
-  void setDeviceOnBlink(bool blink, unsigned long interval = 500);
-  void setScanningBlink(bool blink, unsigned long interval = 200);
-  
-  // Combined control
-  void turnOffAll();
-  void setSystemState(bool deviceOn, bool scanning);
+  void setSystemState(bool on, bool scanning);
+  void setSystemOn(bool on);
+  void setScanning(bool scanning);
   
 private:
-  void updateBlinking();
+  void updateLEDs();
 };
 
 // Global LED manager instance
