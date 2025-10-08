@@ -180,8 +180,7 @@ export default function EventDetailsPage() {
     ? (attendanceSummaries ?? []).reduce((sum: number, s: AttendanceSummary) => sum + s.attendancePercentage, 0) / uniqueAttendees 
     : 0;
   
-  // Get unique users from attendance records (for backward compatibility)
-  const _uniqueUsers = attendance ? [...new Map(attendance.map((record) => [record.user?.name || record.userId, record as unknown])).values()] : [];
+  // Removed unused unique users computation to avoid warning
 
   return (
     <div className="min-h-screen bg-gray-50">
