@@ -16,13 +16,7 @@ type User = {
   bleUuid: string;
 };
 
-type AttendanceRecord = {
-  _id: string;
-  eventId: string;
-  eventName: string;
-  timestamp: number;
-  isPresent: boolean;
-};
+// (removed unused AttendanceRecord type)
 
 export default function UserDetailsPage() {
   const params = useParams();
@@ -34,14 +28,20 @@ export default function UserDetailsPage() {
 
   const user = useQuery(
     api.users.getUser,
-    isValidId ? { userId: userId as any } : "skip"
+    isValidId ? { userId } : "skip"
   ) as User | undefined | null;
   
   // Get user attendance history with event details included
+  type UserAttendanceRecord = {
+    _id: string;
+    timestamp?: number;
+    event?: { name?: string };
+  };
+
   const userAttendance = useQuery(
     api.attendance.getUserAttendance,
-    isValidId ? { userId: userId as any, includeEventDetails: true } : "skip"
-  ) as any[] | undefined | null;
+    isValidId ? { userId, includeEventDetails: true } : "skip"
+  ) as UserAttendanceRecord[] | undefined | null;
   
   const updateUser = useMutation(api.users.updateUser);
   const deleteUser = useMutation(api.users.deleteUser);
@@ -383,7 +383,7 @@ export default function UserDetailsPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {userAttendance.map((record) => (
+                      {userAttendance.map((record: UserAttendanceRecord) => (
                         <tr key={record._id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">
@@ -414,7 +414,7 @@ export default function UserDetailsPage() {
                     </svg>
                   </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">No attendance records</h3>
-                  <p className="text-gray-600">This user hasn't attended any events yet.</p>
+                  <p className="text-gray-600">This user hasn&apos;t attended any events yet.</p>
                 </div>
               )}
             </div>
@@ -482,7 +482,7 @@ export default function UserDetailsPage() {
           <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Delete User</h3>
             <p className="text-sm text-gray-600 mb-6">
-              Are you sure you want to delete "{user.name}"? This action cannot be undone and will remove all associated attendance records.
+              Are you sure you want to delete &quot;{user.name}&quot;? This action cannot be undone and will remove all associated attendance records.
             </p>
             <div className="flex space-x-3">
               <button

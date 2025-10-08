@@ -6,33 +6,52 @@ import Link from "next/link";
 import { format } from "date-fns";
 import { useState } from "react";
 
+type EventItem = {
+  _id: string;
+  name?: string;
+  isActive?: boolean;
+  startTime?: number;
+  endTime?: number;
+  location?: string;
+};
+
+type AttendanceSummary = {
+  _id: string;
+  user?: { name?: string; email?: string };
+  attendancePercentage: number;
+  presentScans: number;
+  totalScans: number;
+  firstSeen?: number;
+  lastSeen?: number;
+};
+
 export default function ReportsPage() {
-  const events = useQuery(api.events.listEvents, {}) || [];
+  const events = (useQuery(api.events.listEvents, {}) || []) as EventItem[];
   const users = useQuery(api.users.listUsers, {}) || [];
   const [selectedEvent, setSelectedEvent] = useState<string>("");
 
   // Get attendance summaries for selected event
-  const attendanceSummaries = useQuery(
+  const attendanceSummaries = (useQuery(
     api.attendance.getEventAttendanceSummaries, 
-    selectedEvent ? { eventId: selectedEvent as any } : "skip"
-  ) || [];
+    selectedEvent ? { eventId: selectedEvent } : "skip"
+  ) || []) as AttendanceSummary[];
 
   // Get detailed attendance records for selected event
-  const attendanceRecords = useQuery(
+  const _attendanceRecords = useQuery(
     api.attendance.getEventAttendance,
-    selectedEvent ? { eventId: selectedEvent as any, includeUserDetails: true } : "skip"
+    selectedEvent ? { eventId: selectedEvent, includeUserDetails: true } : "skip"
   ) || [];
 
   // Calculate statistics
   const totalEvents = events.length;
-  const activeEvents = events.filter((e: any) => e.isActive).length;
+  const activeEvents = events.filter((e) => e.isActive).length;
   const totalUsers = users.length;
   
   // Calculate attendance statistics for selected event
-  const selectedEventData = events.find((e: any) => e._id === selectedEvent);
+  const selectedEventData = events.find((e) => e._id === selectedEvent);
   const totalAttendees = attendanceSummaries.length;
   const averageAttendancePercentage = totalAttendees > 0 
-    ? attendanceSummaries.reduce((sum: number, s: any) => sum + s.attendancePercentage, 0) / totalAttendees 
+    ? attendanceSummaries.reduce((sum: number, s: AttendanceSummary) => sum + s.attendancePercentage, 0) / totalAttendees 
     : 0;
 
   return (
@@ -140,7 +159,7 @@ export default function ReportsPage() {
                 className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">Select an event...</option>
-                {events.map((event: any) => (
+                {events.map((event) => (
                   <option key={event._id} value={event._id}>
                     {event.name} {event.isActive ? "(Active)" : ""}
                   </option>
@@ -188,7 +207,7 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {attendanceSummaries.map((summary: any) => (
+                    {attendanceSummaries.map((summary) => (
                       <tr key={summary._id}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">
@@ -272,7 +291,7 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {events.slice(0, 10).map((event: any) => (
+                  {events.slice(0, 10).map((event) => (
                     <tr key={event._id}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>

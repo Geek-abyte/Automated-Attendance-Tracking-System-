@@ -1,4 +1,5 @@
 #include "ble_scanner.h"
+#include <Arduino.h>
 
 // Global instance defined in ESP32_Scanner_TFT.ino
 
@@ -77,6 +78,9 @@ std::vector<ScannedDevice> BLEScanner::scan() {
     return std::vector<ScannedDevice>();
   }
   
+  // Allow early cancel from main program
+  extern bool stopScanRequested;
+  
   // Reset deduplication for this scan window (per-scan dedupe)
   recentDevices.clear();
   lastDedupeReset = millis();
@@ -84,20 +88,24 @@ std::vector<ScannedDevice> BLEScanner::scan() {
   // Clear previous results
   foundDevices.clear();
   
-  Serial.println("Starting BLE scan for " + String(scanDuration) + "ms...");
+  Serial.println("Starting BLE scan (cancelable) for " + String(scanDuration) + "ms...");
   
-  // Start scan (non-blocking)
-  pBLEScan->start(scanDuration / 1000, false); // Convert ms to seconds
+  // Start scan (non-blocking) so we can cancel early
+  pBLEScan->start(scanDuration / 1000, true); // non-blocking
   totalScans++;
   
-  // Wait for scan to complete, but check frequently for stop request
+  // Poll until duration expires or cancel requested
   unsigned long scanStart = millis();
   while (millis() - scanStart < scanDuration) {
-    delay(100); // Check every 100ms
-    // Note: stopScanRequested is checked in calling code
+    if (stopScanRequested) {
+      Serial.println("Scan cancel requested by user - stopping early");
+      break;
+    }
+    delay(50);
+    yield();
   }
   
-  // Stop scan
+  // Stop scan (safe to call even if already stopped)
   pBLEScan->stop();
   
   // Update statistics

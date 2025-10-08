@@ -18,7 +18,6 @@ export default function UsersPage() {
   // Create direct function references since API types aren't working
   const users = useQuery(api.users.listUsers, {}) as User[] | undefined;
   const createUser = useMutation(api.users.createUser);
-  const updateUser = useMutation(api.users.updateUser);
 
   const [isCreating, setIsCreating] = useState(false);
   const [newUser, setNewUser] = useState({

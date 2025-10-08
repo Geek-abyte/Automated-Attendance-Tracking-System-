@@ -15,8 +15,9 @@
 #define TFT_BL    3.3 // Backlight (3.3V)
 
 // Button Pins (with internal pullup, default state HIGH)
-// Note: GPIO35 does NOT support internal pull-up; use external pull-up resistor
-#define BUTTON_UP    35  // Up navigation
+// Note: Use GPIOs that support internal pull-ups; GPIO35 does not.
+// If hardware was previously wired to 35, move the Up button to GPIO27.
+#define BUTTON_UP    27  // Up navigation (moved from 35 to support internal pull-up)
 #define BUTTON_ENTER 32  // Enter/Select
 #define BUTTON_DOWN  33  // Down navigation
 
@@ -62,6 +63,6 @@
 // System Configuration
 #define MAX_EVENTS 10
 #define SCAN_INTERVAL 5000  // 5 seconds
-#define BLE_SCAN_DURATION 3000  // 3 seconds
+#define BLE_SCAN_DURATION 1500  // 1.5 seconds for snappier stop response
 
 #endif // HARDWARE_CONFIG_H

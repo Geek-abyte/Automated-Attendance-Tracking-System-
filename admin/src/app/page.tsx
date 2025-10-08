@@ -106,7 +106,7 @@ export default function AdminDashboard() {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Active Events</p>
                 <p className="text-2xl font-semibold text-gray-900">
-                  {events?.filter(e => e.isActive).length || 0}
+                  {events?.filter((e: { isActive: boolean }) => e.isActive).length || 0}
                 </p>
               </div>
             </div>
@@ -131,7 +131,7 @@ export default function AdminDashboard() {
             <div className="p-6">
               {recentEvents.length > 0 ? (
                 <div className="space-y-4">
-                  {recentEvents.map((event) => (
+                  {recentEvents.map((event: { _id: string; name: string; startTime?: number; isActive: boolean }) => (
                     <div key={event._id} className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium text-gray-900">{event.name}</p>

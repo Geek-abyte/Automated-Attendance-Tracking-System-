@@ -125,54 +125,12 @@ export const updateEvent = mutation({
   },
 });
 
-// Delete event (hard delete with cascade of related records)
+// Delete event (soft delete by setting inactive)
 export const deleteEvent = mutation({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    const event = await ctx.db.get(args.eventId);
-    if (!event) {
-      throw new Error("Event not found");
-    }
-
-    // Delete attendance records for this event
-    const attendance = await ctx.db
-      .query("attendance")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    for (const rec of attendance) {
-      await ctx.db.delete(rec._id);
-    }
-
-    // Delete attendance summaries for this event
-    const summaries = await ctx.db
-      .query("attendanceSummary")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    for (const s of summaries) {
-      await ctx.db.delete(s._id);
-    }
-
-    // Delete registrations for this event
-    const regs = await ctx.db
-      .query("eventRegistrations")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    for (const r of regs) {
-      await ctx.db.delete(r._id);
-    }
-
-    // Finally, delete the event itself
-    await ctx.db.delete(args.eventId);
-
-    return {
-      success: true,
-      deleted: {
-        attendance: attendance.length,
-        summaries: summaries.length,
-        registrations: regs.length,
-        events: 1,
-      },
-    };
+    await ctx.db.patch(args.eventId, { isActive: false });
+    return { success: true };
   },
 });
 

@@ -45,7 +45,7 @@ static const char* CONVEX_ROOT_CA_PEM = R"PEM(
 )PEM";
 
 BackendClient::BackendClient() {
-  baseURL = "https://combative-deer-426.convex.cloud/http";
+  baseURL = "https://beaming-loris-569.convex.cloud/http";
   apiKey = "att_3sh4fmd2u14ffisevqztm";
   timeout = 60000; // 60 seconds (increased for poor WiFi)
   lastError = "";

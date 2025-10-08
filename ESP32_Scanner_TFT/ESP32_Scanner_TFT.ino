@@ -34,7 +34,7 @@
 // Configuration
 const char* WIFI_SSID = "Urek Mazino";
 const char* WIFI_PASSWORD = "";
-const char* BACKEND_URL = "https://combative-deer-426.convex.cloud/http";
+const char* BACKEND_URL = "https://beaming-loris-569.convex.cloud/http";
 const char* API_KEY = "att_3sh4fmd2u14ffisevqztm";
 
 // Global objects
@@ -149,31 +149,30 @@ void updateHardware() {
   buttons.update();
   
   // Handle button presses
-  if (buttons.isUpPressed()) {
+  if (buttons.pollUpEvent()) {
     display.navigateUp();
   }
   
-  if (buttons.isDownPressed()) {
+  if (buttons.pollDownEvent()) {
     display.navigateDown();
   }
   
-  // ENTER handling with long-press requirement during scanning
+  // ENTER handling: edge-triggered + optional long-press in scanning
   if (currentState == STATE_SCANNING) {
     static bool stopTriggered = false;
-    static unsigned long pressedAt = 0;
-    if (buttons.isEnterPressed()) {
-      if (pressedAt == 0) pressedAt = millis();
-      const unsigned long held = millis() - pressedAt;
-      if (!stopTriggered && held >= 1000) { // require ≥1000ms
-        stopTriggered = true;
-        Serial.println("Long-press ENTER detected (>=1s). Stopping scan.");
-        handleEnterPress();
-      }
-    } else {
-      pressedAt = 0;
-      stopTriggered = false;
+    // Use edge event to start measuring hold, reduce accidental repeats
+    if (buttons.pollEnterEvent()) {
+      // Edge occurred; held logic continues below
     }
-  } else if (buttons.isEnterPressed()) {
+    if (!stopTriggered && buttons.isEnterHeld(600)) {
+      stopTriggered = true;
+      Serial.println("Long-press ENTER detected (>=0.6s). Stopping scan.");
+      handleEnterPress();
+    }
+    if (!buttons.isEnterPressed()) {
+      stopTriggered = false; // reset when released
+    }
+  } else if (buttons.pollEnterEvent()) {
     handleEnterPress();
   }
   
@@ -464,6 +463,13 @@ void stopScanning() {
   currentState = STATE_EVENT_SELECTION;
   display.showEventList(events.getEventList(), events.getEventCount());
   
+  // Small input cooldown to avoid immediate re-trigger
+  unsigned long cooldownStart = millis();
+  while (millis() - cooldownStart < 300) {
+    buttons.update();
+    delay(10);
+  }
+  
   Serial.println("=== SCAN STOPPED ===");
   Serial.println("Select an event to begin scanning");
 }
@@ -639,7 +645,7 @@ void updateLEDStates() {
 void testSimpleConnection() {
   // Test with a simple HTTP client
   HTTPClient http;
-  http.begin("https://combative-deer-426.convex.cloud/http/health");
+  http.begin("https://beaming-loris-569.convex.cloud/http/health");
   http.setTimeout(10000); // 10 second timeout
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-api-key", API_KEY);

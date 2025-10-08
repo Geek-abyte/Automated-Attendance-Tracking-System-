@@ -45,11 +45,6 @@ export const recordAttendance = mutation({
       .first();
 
     if (existingAttendance) {
-      // Refresh summary even when within dedupe window
-      await calculateAttendancePercentage(ctx, {
-        userId: args.userId,
-        eventId: args.eventId,
-      });
       return existingAttendance._id; // Return existing record, don't duplicate
     }
 
@@ -63,12 +58,6 @@ export const recordAttendance = mutation({
       scannerSource: args.scannerSource,
       synced: false, // Will be true when synced from offline scanner
       syncedAt: undefined,
-    });
-
-    // Compute or refresh summary after insert
-    await calculateAttendancePercentage(ctx, {
-      userId: args.userId,
-      eventId: args.eventId,
     });
 
     return attendanceId;
@@ -282,11 +271,6 @@ export const batchRecordAttendance = internalMutation({
             status: "duplicate",
             attendanceId: existingAttendance._id,
           });
-          // Refresh summary even on duplicates
-          await calculateAttendancePercentage(ctx, {
-            userId: user._id,
-            eventId: event._id,
-          });
           // Still update event window based on this record
           const key = event._id;
           const win = eventWindow.get(key);
@@ -309,12 +293,6 @@ export const batchRecordAttendance = internalMutation({
           scannerSource: record.scannerSource,
           synced: true, // This is from scanner sync
           syncedAt: Date.now(),
-        });
-
-        // Compute or refresh summary after insert
-        await calculateAttendancePercentage(ctx, {
-          userId: user._id,
-          eventId: event._id,
         });
 
         // Track window
@@ -532,15 +510,6 @@ export const recalculateEventAttendanceSummaries = internalMutation({
       }
     }
 
-    return results;
-  },
-});
-
-// Public endpoint to recalc summaries for an event on-demand
-export const recalcEventSummaries = mutation({
-  args: { eventId: v.id("events") },
-  handler: async (ctx, args) => {
-    const results = await recalculateEventAttendanceSummaries(ctx, { eventId: args.eventId });
     return results;
   },
 });

@@ -6,8 +6,17 @@ import Link from "next/link";
 import { format } from "date-fns";
 import { useState } from "react";
 
+type EventItem = {
+  _id: string;
+  name?: string;
+  location?: string;
+  startTime?: number;
+  endTime?: number;
+  isActive?: boolean;
+};
+
 export default function EventsPage() {
-  const events = useQuery(api.events.listEvents, {}) || [];
+  const events = (useQuery(api.events.listEvents, {}) || []) as EventItem[];
   const setEventActive = useMutation(api.events.setEventActive);
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -24,7 +33,7 @@ export default function EventsPage() {
     );
   }
 
-  const handleToggleActive = async (eventId: any, isActive: boolean) => {
+  const handleToggleActive = async (eventId: string, isActive: boolean) => {
     setLoading(eventId);
     try {
       await setEventActive({ eventId, isActive: !isActive });
@@ -35,14 +44,15 @@ export default function EventsPage() {
     }
   };
 
-  const renderTime = (event: any) => {
+  const renderTime = (event: EventItem) => {
     const hasStart = typeof event.startTime === "number" && !isNaN(event.startTime);
     const hasEnd = typeof event.endTime === "number" && !isNaN(event.endTime);
     
     if (!hasStart && !hasEnd) return <span className="text-gray-400">Scanner-controlled</span>;
     
-    const formatDate = (timestamp: number) => {
+    const formatDate = (timestamp?: number) => {
       try {
+        if (typeof timestamp !== "number") return null;
         const date = new Date(timestamp);
         if (isNaN(date.getTime())) return "Invalid Date";
         return date;
@@ -129,7 +139,7 @@ export default function EventsPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {events.map((event: any) => {
+                  {events.map((event: EventItem) => {
                     // Safety check for event data
                     if (!event || typeof event !== 'object') {
                       console.warn("Invalid event data:", event);
@@ -165,7 +175,7 @@ export default function EventsPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                         <button
-                          onClick={() => handleToggleActive(event._id, event.isActive)}
+                          onClick={() => handleToggleActive(event._id, !!event.isActive)}
                           disabled={loading === event._id}
                           className={`inline-flex items-center px-3 py-1 rounded text-sm ${
                             event.isActive === true

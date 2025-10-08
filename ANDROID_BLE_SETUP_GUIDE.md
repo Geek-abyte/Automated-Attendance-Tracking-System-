@@ -566,3 +566,12 @@ npm install react-native-ble-advertiser
 
 **See `/mobile/BLE_ADVERTISER_INTEGRATION.md` for detailed documentation.**
 
+Android Bundled 157ms index.ts (1 module)
+ LOG  [BLE Advertiser] Module loaded ✓
+ LOG  Auto-starting broadcasting for active event(s)
+ LOG  [Permissions] Result: {"android.permission.ACCESS_FINE_LOCATION": "granted", "android.permission.BLUETOOTH_ADVERTISE": "granted"}
+ LOG  [Permissions] BLUETOOTH_ADVERTISE: true, LOCATION: true
+ LOG  [Permissions] All required granted: true
+ LOG  [BLE Advertiser] Starting advertising with UUID: ATT-USER-12P8AJNR
+ LOG  [BLE Advertiser] Broadcasting 17 bytes of data
+ LOG  [BLE Advertiser] Successfully started advertising 

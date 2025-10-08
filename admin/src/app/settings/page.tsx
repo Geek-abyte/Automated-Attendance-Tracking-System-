@@ -13,7 +13,8 @@ export default function SettingsPage() {
     timezone: 'UTC'
   });
 
-  const handleSettingChange = (key: string, value: any) => {
+  type SettingKey = keyof typeof settings;
+  const handleSettingChange = (key: SettingKey, value: string | number | boolean) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
