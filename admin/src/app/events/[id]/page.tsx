@@ -53,10 +53,7 @@ export default function EventDetailsPage() {
     lastSeen?: number;
   };
 
-  const attendance = useQuery(
-    api.attendance.getEventAttendance, 
-    isValidId ? { eventId, includeUserDetails: true } : "skip"
-  ) as { _id: string; userId?: string; user?: { name?: string } }[] | undefined | null;
+  // Detailed attendance records can be queried if needed in the future
   
   // Get attendance summaries with percentages
   const attendanceSummaries = useQuery(
@@ -181,7 +178,7 @@ export default function EventDetailsPage() {
     : 0;
   
   // Get unique users from attendance records (for backward compatibility)
-  const _uniqueUsers = attendance ? [...new Map(attendance.map((record) => [record.user?.name || record.userId, record as unknown])).values()] : [];
+  // Unique users can be computed here if needed in future
 
   return (
     <div className="min-h-screen bg-gray-50">

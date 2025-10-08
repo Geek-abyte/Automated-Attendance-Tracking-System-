@@ -37,10 +37,7 @@ export default function ReportsPage() {
   ) || []) as AttendanceSummary[];
 
   // Get detailed attendance records for selected event
-  const _attendanceRecords = useQuery(
-    api.attendance.getEventAttendance,
-    selectedEvent ? { eventId: selectedEvent, includeUserDetails: true } : "skip"
-  ) || [];
+  // Detailed attendance records can be queried here if needed in future
 
   // Calculate statistics
   const totalEvents = events.length;
