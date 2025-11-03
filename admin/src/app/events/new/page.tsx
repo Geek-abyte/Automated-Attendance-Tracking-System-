@@ -13,10 +13,6 @@ export default function NewEventPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    startDate: '',
-    startTime: '',
-    endDate: '',
-    endTime: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -27,19 +23,9 @@ export default function NewEventPage() {
     setError('');
 
     try {
-      // Convert date and time to timestamps
-      const startDateTime = new Date(`${formData.startDate}T${formData.startTime}`);
-      const endDateTime = new Date(`${formData.endDate}T${formData.endTime}`);
-
-      if (endDateTime <= startDateTime) {
-        throw new Error('End time must be after start time');
-      }
-
       await createEvent({
         name: formData.name,
         description: formData.description || undefined,
-        startTime: startDateTime.getTime(),
-        endTime: endDateTime.getTime(),
         createdBy: 'admin', // In production, this would be the logged-in user
       });
 
@@ -58,8 +44,7 @@ export default function NewEventPage() {
     });
   };
 
-  // Set default dates to today and tomorrow
-  const today = new Date().toISOString().split('T')[0];
+  // No date/time inputs required
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -124,69 +109,7 @@ export default function NewEventPage() {
                 />
               </div>
 
-              {/* Start Date and Time */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="startDate" className="block text-sm font-medium text-gray-700">
-                    Start Date *
-                  </label>
-                  <input
-                    type="date"
-                    id="startDate"
-                    name="startDate"
-                    required
-                    value={formData.startDate || today}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="startTime" className="block text-sm font-medium text-gray-700">
-                    Start Time *
-                  </label>
-                  <input
-                    type="time"
-                    id="startTime"
-                    name="startTime"
-                    required
-                    value={formData.startTime}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* End Date and Time */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="endDate" className="block text-sm font-medium text-gray-700">
-                    End Date *
-                  </label>
-                  <input
-                    type="date"
-                    id="endDate"
-                    name="endDate"
-                    required
-                    value={formData.endDate || today}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="endTime" className="block text-sm font-medium text-gray-700">
-                    End Time *
-                  </label>
-                  <input
-                    type="time"
-                    id="endTime"
-                    name="endTime"
-                    required
-                    value={formData.endTime}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
+              {/* Date/Time fields removed per requirements */}
 
               {/* Submit Buttons */}
               <div className="flex justify-end space-x-4 pt-6">
