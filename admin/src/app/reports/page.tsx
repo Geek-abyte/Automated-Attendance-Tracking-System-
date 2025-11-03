@@ -36,7 +36,8 @@ export default function ReportsPage() {
     selectedEvent ? { eventId: selectedEvent } : "skip"
   ) || []) as AttendanceSummary[];
 
-  // Detailed attendance records query removed to avoid unused variable warning
+  // Get detailed attendance records for selected event
+  // Detailed attendance records can be queried here if needed in future
 
   // Calculate statistics
   const totalEvents = events.length;

@@ -32,7 +32,7 @@
 #include "event_manager.h"
 
 // Configuration
-const char* WIFI_SSID = "Urek Mazino";
+const char* WIFI_SSID = "scanner-wifi";
 const char* WIFI_PASSWORD = "";
 const char* BACKEND_URL = "https://beaming-loris-569.convex.cloud/http";
 const char* API_KEY = "att_3sh4fmd2u14ffisevqztm";
